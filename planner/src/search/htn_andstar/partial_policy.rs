@@ -220,6 +220,63 @@ impl PartialPolicyState {
     }
 }
 
+// ── Delta-nearest admissible lower bound (MinCost mode) ─────────────────────
+
+/// Admissible lower-bound on total policy size for MinCost (FOND) mode.
+///
+/// Implements the "delta-nearest" estimate from Messa & Pereira (2403.19883):
+/// collect cost_lower from all Assigned and Compound(Out_C) nodes, sort desc,
+/// then delta = max(h[i] + i).  Returns -max(delta, count + max(0, min_out_c_h-1)).
+pub fn delta_nearest_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64 {
+    if out_c.is_empty() {
+        return -(policy_size as f64);
+    }
+
+    let mut h_vals: Vec<f64> = Vec::new();
+    let mut min_out_c_h = f64::INFINITY;
+
+    for node in reach.iter() {
+        match node.kind {
+            NodeKind::Assigned => {
+                if node.cost_lower != f64::INFINITY {
+                    h_vals.push(node.cost_lower);
+                }
+            }
+            NodeKind::Compound => {
+                if node.cost_lower != f64::INFINITY {
+                    h_vals.push(node.cost_lower);
+                    if node.cost_lower < min_out_c_h {
+                        min_out_c_h = node.cost_lower;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let count = (policy_size + out_c.len()) as f64;
+
+    h_vals.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
+    let delta = h_vals
+        .iter()
+        .enumerate()
+        .map(|(i, &h)| h + i as f64)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    let min_h_term = if min_out_c_h == f64::INFINITY {
+        0.0
+    } else {
+        (min_out_c_h - 1.0).max(0.0)
+    };
+
+    let lb = if delta == f64::NEG_INFINITY {
+        count
+    } else {
+        delta.max(count + min_h_term)
+    };
+    -lb
+}
+
 // ── Ordering — max-heap on f_value ──────────────────────────────────────────
 
 impl PartialEq for PartialPolicyState {
@@ -341,5 +398,65 @@ pub fn compute_reach_sig(reach: &[ReachNode], f_value: f64, policy_size: usize) 
         policy_size,
         f_value_bits: f_value.to_bits(),
         compounds,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain_description::DomainTasks;
+    use crate::task_network::HTN;
+    use std::collections::{BTreeSet, HashMap};
+
+    fn dummy_node(kind: NodeKind, cost_lower: f64) -> ReachNode {
+        let domain = Rc::new(DomainTasks::new(vec![]));
+        let tn = Rc::new(HTN::new(BTreeSet::new(), vec![], domain, HashMap::new()));
+        ReachNode {
+            tn,
+            state: Rc::new(HashSet::new()),
+            kind,
+            prob_upper: 1.0,
+            cost_lower,
+            successors: vec![],
+        }
+    }
+
+    #[test]
+    fn delta_nearest_tighter_than_max_h() {
+        // 2 Assigned nodes (h=10, h=0), 1 Out_C node (h=3).
+        // fond_f_value would give -(2 + 3) = -5.
+        // delta_nearest: count=3, h_vals=[10,3,0] desc,
+        //   delta = max(10+0, 3+1, 0+2) = 10
+        //   min_out_c_h=3, min_h_term=2, lb = max(10, 3+2) = 10 → f=-10 (tighter).
+        let reach = vec![
+            dummy_node(NodeKind::Assigned, 10.0),
+            dummy_node(NodeKind::Assigned, 0.0),
+            dummy_node(NodeKind::Compound, 3.0),
+        ];
+        let out_c = vec![2usize];
+        let f = delta_nearest_f_value(&reach, &out_c, 2);
+        assert!((f - (-10.0)).abs() < 1e-9, "expected -10.0, got {f}");
+    }
+
+    #[test]
+    fn delta_nearest_degenerate_cases() {
+        // Empty policy (policy_size=0), 2 Out_C nodes h=[5,2].
+        // count=2, h_vals=[5,2], delta=max(5+0,2+1)=5
+        // min_out_c_h=2, min_h_term=1, lb=max(5, 2+1)=5 → f=-5.
+        let reach = vec![
+            dummy_node(NodeKind::Compound, 5.0),
+            dummy_node(NodeKind::Compound, 2.0),
+        ];
+        let f = delta_nearest_f_value(&reach, &[0, 1], 0);
+        assert!((f - (-5.0)).abs() < 1e-9, "expected -5.0, got {f}");
+
+        // All-INFINITY out_c: count = policy_size + 1 = 4; no finite h → lb=4 → f=-4.
+        let reach2 = vec![dummy_node(NodeKind::Compound, f64::INFINITY)];
+        let f2 = delta_nearest_f_value(&reach2, &[0], 3);
+        assert!((f2 - (-4.0)).abs() < 1e-9, "expected -4.0, got {f2}");
+
+        // Closed policy (out_c empty) → -(policy_size).
+        let f3 = delta_nearest_f_value(&[], &[], 5);
+        assert!((f3 - (-5.0)).abs() < 1e-9, "expected -5.0, got {f3}");
     }
 }
