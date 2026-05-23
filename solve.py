@@ -5,7 +5,7 @@ import json
 import resource
 
 # Timeout in minutes
-def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None):
+def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output_path=None):
     path = os.getcwd()
     parser_path = path + "/parser/pandaPIparser"
     grounder_path = path + "/grounder/pandaPIgrounder/"
@@ -78,7 +78,6 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None):
         try:
             release_suffix = "target/release/planner"
             debug_suffix = "target/debug/planner"
-            debug_mode = False
 
             mem_preexec = None
             if mem_limit_gb is not None:
@@ -86,23 +85,26 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None):
                 print(f"Memory limit: {mem_limit_gb} GB ({limit_bytes} bytes)")
                 mem_preexec = lambda: resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
 
+            capture = output_path is not None
             if os.path.isfile(planner_path + release_suffix):
                 print("Running in release mode")
                 result = subprocess.run(
                     [planner_path + release_suffix, planner_path + "result.json"] + optional_flags,
-                    stdout=subprocess.PIPE, stderr=None,
+                    stdout=subprocess.PIPE if capture else None,
+                    stderr=None,
                     timeout=60 * timeout, preexec_fn=mem_preexec)
             elif os.path.isfile(planner_path + debug_suffix):
                 print("Release binary not available, using debug binary...")
-                debug_mode = True
                 result = subprocess.run(
                     [planner_path + debug_suffix, planner_path + "result.json"] + optional_flags,
-                    capture_output=False, timeout=60 * timeout, preexec_fn=mem_preexec)
+                    stdout=subprocess.PIPE if capture else None,
+                    stderr=None,
+                    timeout=60 * timeout, preexec_fn=mem_preexec)
             else:
                 print(f"No binary found in {planner_path + release_suffix} or {planner_path + debug_suffix}, exiting.")
                 sys.exit(1)
-            if not debug_mode:
-                with open(path + f"/{problem}_solution_{''.join(optional_flags)}.txt", "x") as f:
+            if capture:
+                with open(output_path, "w") as f:
                     f.write(result.stdout.decode("utf-8"))
         except subprocess.TimeoutExpired:
             print(f'\t\ttimeout for {problem}')
@@ -125,6 +127,7 @@ if __name__ == "__main__":
     threshold_flag = []
     tiebreak_flag = []
     mem_limit_gb = None
+    output_path = None
 
     i = 0
     while i < len(args):
@@ -142,6 +145,9 @@ if __name__ == "__main__":
         elif arg == "--mem-limit" and i + 1 < len(args):
             mem_limit_gb = float(args[i + 1])
             i += 1
+        elif arg == "--output" and i + 1 < len(args):
+            output_path = args[i + 1]
+            i += 1
         i += 1
 
     # Default heuristic to --ff if not specified
@@ -150,4 +156,4 @@ if __name__ == "__main__":
         heuristic_flag = ["--ff"]
 
     optional_flags = mode_flag + heuristic_flag + threshold_flag + tiebreak_flag
-    solve(domain, problem, optional_flags, mem_limit_gb=mem_limit_gb)
+    solve(domain, problem, optional_flags, mem_limit_gb=mem_limit_gb, output_path=output_path)
