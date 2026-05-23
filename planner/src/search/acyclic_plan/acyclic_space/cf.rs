@@ -20,6 +20,15 @@ impl AOStarSearch {
             if depth > max_depth {
                 max_depth = depth;
             }
+            if explored_nodes % 10_000 == 0 {
+                eprintln!(
+                    "[AO*] explored={} | nodes={} | depth={} | {:.1}s",
+                    explored_nodes,
+                    search_graph.ids.len(),
+                    max_depth,
+                    start_time.elapsed().as_secs_f64()
+                );
+            }
         }
         let root_prob = search_graph
             .ids
