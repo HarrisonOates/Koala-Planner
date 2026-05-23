@@ -68,7 +68,7 @@ pub struct NodeExpansion {
     pub outcome_probabilities: Vec<f64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionLabel {
     Execution(String, u32),
     // task name - method name

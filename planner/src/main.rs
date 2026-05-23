@@ -62,11 +62,10 @@ fn main() {
             "--add"   => Some(HeuristicType::HAdd),
             "--max"   => Some(HeuristicType::HMax),
             "--ff"    => Some(HeuristicType::HFF),
-            "--prob"  => Some(HeuristicType::HProb),
             "--lmcut" => Some(HeuristicType::HLMCut),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --prob | --lmcut"));
+        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --lmcut"));
 
     match args.get(2) {
         Some(flag) => match flag.as_str() {
