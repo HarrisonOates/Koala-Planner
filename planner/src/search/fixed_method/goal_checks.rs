@@ -74,11 +74,6 @@ pub fn is_goal_strong_od(
 
     match solution {
         SearchResult::Success(policy) => {
-            // search node count for final successful subroutine call
-            // custom_statistics.insert(
-            //     String::from("# of search nodes in final (successful) AO* call"),
-            //     CustomStatistic::Value(stats.search_nodes),
-            // );
             custom_statistics.insert(
                 String::from("makespan"),
                 CustomStatistic::Value(policy.makespan as u32),
@@ -119,9 +114,7 @@ pub fn deorder(leaf_node: Rc<RefCell<SearchNode>>) -> HTN {
 
             match &edge.method_name {
                 Some(_name) => {
-                    // println!("[CREATING COMPOUND ORDERING SET AT] {}", old_id);
                     compound_mapping.insert(old_id, Vec::new());
-                    // iterate over them, check their type; if primitive, map to new ID and insert; if compound, insert with Old ID
                     let child_set: HashSet<OldID> = child.borrow().tn.get_task_id_set();
                     let parent_set: HashSet<OldID> = parent_node.tn.get_task_id_set();
                     let method_tasks: HashSet<OldID> =
@@ -142,15 +135,11 @@ pub fn deorder(leaf_node: Rc<RefCell<SearchNode>>) -> HTN {
                     let new_id: NewID = next_new_id;
                     next_new_id += 1;
                     tasks.insert(new_id);
-                    // println!("[NEW TASK] {}", new_id);
                     alpha.insert(new_id, *parent_node.tn.mappings.get(&old_id).unwrap());
                     equivalent_ids.insert(old_id, new_id);
-                    // println!("[MAPPING] {} -> {}", old_id, new_id);
                     for greater in parent_node.tn.get_outgoing_edges(old_id) {
                         match *parent_node.tn.get_task(greater).borrow() {
                             Task::Primitive(_) => {
-                                // error at this unwrap
-                                // println!("[INSERT ORDERING] {} < {}", new_id, *equivalent_ids.get(&greater).unwrap());
                                 orderings.push((new_id, *equivalent_ids.get(&greater).unwrap()));
                             }
                             Task::Compound(_) => {
@@ -177,7 +166,6 @@ fn rec_hlpr(
     for task in compound_mapping.get(&compound_task).unwrap() {
         match task {
             TaggedTask::Primitive(id) => {
-                // println!("[INSERT ORDERING] {} < {}", predecessor_id, *id);
                 orderings.push((predecessor_id, *id));
             }
             TaggedTask::Compound(id) => rec_hlpr(orderings, compound_mapping, predecessor_id, *id),
