@@ -236,8 +236,7 @@ fn compute_reach_incremental(
     // Clone the full parent graph — already-explored nodes cost one clone
     // instead of a full BFS re-traversal.
     let mut reach: Vec<Option<ReachNode>> = parent_reach.iter().cloned().map(Some).collect();
-    let mut index_map = HashMap::with_capacity(parent_index_map.len() + 16);
-    index_map.clone_from(parent_index_map);
+    let mut index_map = parent_index_map.clone();
     // Carry over remaining unresolved compound nodes (skip node_idx at [0]).
     let mut out_c: Vec<usize> = parent_out_c[1..].to_vec();
 
@@ -566,12 +565,6 @@ fn run_internal(
                 &h_type,
                 mode,
             );
-            // ── Early deadlock detection (MinCost only) ──────────────────────
-            // If any Dead node is already reachable through the resolved reach,
-            // no extension of Out_C can fix it — prune immediately.
-            if mode == SearchMode::MinCost && !is_reach_proper(&new_reach_full) {
-                continue;
-            }
             let new_f = match mode {
                 SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_reach_full),
                 SearchMode::MinCost => {
@@ -587,14 +580,16 @@ fn run_internal(
                 continue;
             }
 
-            // Signature f-value for deduplication.
-            // MaxProb: use the VI probability (already computed as new_f).
-            // MinCost (FOND): use delta_nearest directly — the reach graph topology
-            // (compound node states + TN structures in compute_reach_sig) already
-            // fully distinguishes reach graphs. VI is binary-valued in FOND and adds
-            // no extra discrimination, and the reference implementation (Messa &
-            // Pereira) uses only structural state IDs, not VI values, for signatures.
-            let sig_f = new_f;
+            // For deduplication, use a f-value that captures the full reach structure.
+            // delta_nearest depends on all compound h-values but may still alias different
+            // reach graphs.  Using VI for the sig key (even in MinCost mode) gives a
+            // structurally accurate proxy.
+            let sig_f = match mode {
+                SearchMode::MaxProb => new_f,
+                SearchMode::MinCost => {
+                    PartialPolicyState::compute_f_by_vi(&new_reach_full)
+                }
+            };
             let sig = compute_reach_sig(&new_reach_full, sig_f, pi.policy_size + 1);
             if !seen.contains(&sig) {
                 seen.insert(sig);
