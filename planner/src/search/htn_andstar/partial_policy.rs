@@ -1,3 +1,4 @@
+use crate::heuristics::LandmarkCuts;
 use crate::task_network::HTN;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
@@ -89,6 +90,10 @@ pub struct ReachNode {
     /// Outgoing edges: (successor reach-index, edge probability).
     /// Empty for Goal, Dead, and Compound nodes.
     pub successors: Vec<(usize, f64)>,
+    /// LM-cut landmark cuts discovered when computing h_val for this node.
+    /// Non-empty only for Compound nodes when using the HLMCut heuristic.
+    /// Used to warm-start LM-cut for child compound nodes (Pommerening & Helmert 2013).
+    pub landmarks: LandmarkCuts,
 }
 
 /// A single method assignment recorded in the policy.
@@ -418,6 +423,7 @@ mod tests {
             prob_upper: 1.0,
             cost_lower,
             successors: vec![],
+            landmarks: vec![],
         }
     }
 

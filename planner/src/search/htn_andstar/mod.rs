@@ -63,6 +63,7 @@ fn compute_reach(
                 prob_upper: 1.0,
                 cost_lower: 0.0,
                 successors: vec![],
+                landmarks: vec![],
             });
             continue;
         }
@@ -78,6 +79,7 @@ fn compute_reach(
                 prob_upper: 0.0,
                 cost_lower: 0.0,
                 successors: vec![],
+                landmarks: vec![],
             });
             continue;
         }
@@ -119,10 +121,14 @@ fn compute_reach(
                 prob_upper: 1.0,
                 cost_lower: 0.0,
                 successors,
+                landmarks: vec![],
             });
         } else {
             // ── Compound: all unconstrained tasks are compound ────────────────
-            let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
+            let key = make_key(&tn, &state);
+            let (h, landmarks) = SearchGraphNode::h_val_with_landmarks(
+                tn.as_ref(), state.as_ref(), relaxed, bijection, h_type,
+            );
             let (prob_upper, cost_lower) = match mode {
                 SearchMode::MinCost => {
                     let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
@@ -131,7 +137,6 @@ fn compute_reach(
                 }
                 SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
             };
-            let key = make_key(&tn, &state);
 
             if let Some((task_name, method_name)) = assignments.get(&key) {
                 // Assigned: follow the chosen method.
@@ -155,8 +160,9 @@ fn compute_reach(
                         state,
                         kind: NodeKind::Assigned,
                         prob_upper,
-                        cost_lower: 0.0,
+                        cost_lower,
                         successors: vec![(succ_idx, 1.0)],
+                        landmarks: vec![],
                     });
                 } else {
                     // Assigned method not found — treat as dead end.
@@ -167,6 +173,7 @@ fn compute_reach(
                         prob_upper: 0.0,
                         cost_lower: 0.0,
                         successors: vec![],
+                        landmarks: vec![],
                     });
                 }
             } else {
@@ -178,6 +185,7 @@ fn compute_reach(
                     prob_upper,
                     cost_lower,
                     successors: vec![],
+                    landmarks,
                 });
                 out_c.push(node_idx);
             }
@@ -232,6 +240,7 @@ fn compute_reach_incremental(
     bijection: &HashMap<u32, u32>,
     h_type: &HeuristicType,
     mode: SearchMode,
+    method_action_idx: Option<usize>,
 ) -> (Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
     // Clone the full parent graph — already-explored nodes cost one clone
     // instead of a full BFS re-traversal.
@@ -269,6 +278,7 @@ fn compute_reach_incremental(
                 prob_upper: 1.0,
                 cost_lower: 0.0,
                 successors: vec![],
+                landmarks: vec![],
             });
             continue;
         }
@@ -283,6 +293,7 @@ fn compute_reach_incremental(
                 prob_upper: 0.0,
                 cost_lower: 0.0,
                 successors: vec![],
+                landmarks: vec![],
             });
             continue;
         }
@@ -318,10 +329,29 @@ fn compute_reach_incremental(
                 prob_upper: 1.0,
                 cost_lower: 0.0,
                 successors,
+                landmarks: vec![],
             });
         } else {
             // All unconstrained tasks are compound — newly discovered, so always Compound.
-            let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
+            // If this is the direct successor of the assigned node (no primitives intervened)
+            // and we're using LM-cut, warm-start from the parent's landmark cuts.
+            let (h, landmarks) = if matches!(h_type, HeuristicType::HLMCut)
+                && n_idx == succ_idx
+                && method_action_idx.is_some()
+            {
+                SearchGraphNode::h_val_lmcut_incremental(
+                    tn.as_ref(),
+                    state.as_ref(),
+                    relaxed,
+                    bijection,
+                    &parent_reach[node_idx].landmarks,
+                    method_action_idx.unwrap(),
+                )
+            } else {
+                SearchGraphNode::h_val_with_landmarks(
+                    tn.as_ref(), state.as_ref(), relaxed, bijection, h_type,
+                )
+            };
             let (prob_upper, cost_lower) = match mode {
                 SearchMode::MinCost => {
                     let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
@@ -337,6 +367,7 @@ fn compute_reach_incremental(
                 prob_upper,
                 cost_lower,
                 successors: vec![],
+                landmarks,
             });
             out_c.push(n_idx);
         }
@@ -463,14 +494,24 @@ fn run_internal(
         explored += 1;
 
         if explored % 10_000 == 0 {
-            eprintln!(
-                "[AND*] explored={} | open={} | best_f={:.4} | best_closed={:.4} | {:.1}s",
-                explored,
-                open.len(),
-                pi.f_value,
-                best_closed_prob,
-                start_time.elapsed().as_secs_f64()
-            );
+            match mode {
+                SearchMode::MaxProb => eprintln!(
+                    "[AND*] explored={} | open={} | best_prob={:.4} | best_closed={:.4} | {:.1}s",
+                    explored,
+                    open.len(),
+                    pi.f_value,
+                    if best_closed_prob < 0.0 { 0.0 } else { best_closed_prob },
+                    start_time.elapsed().as_secs_f64()
+                ),
+                SearchMode::MinCost => eprintln!(
+                    "[AND*] explored={} | open={} | est_cost={:.1} | found_plan={} | {:.1}s",
+                    explored,
+                    open.len(),
+                    -pi.f_value,
+                    best_closed_prob >= 1.0,
+                    start_time.elapsed().as_secs_f64()
+                ),
+            }
         }
 
         // ── Closed policy found ────────────────────────────────────────────
@@ -553,6 +594,14 @@ fn run_internal(
                 _ => unreachable!(),
             };
 
+            // For LM-cut: find the classical action index of this method so the
+            // incremental warm-start can drop landmark cuts that contain it.
+            let method_action_idx = if matches!(h_type, HeuristicType::HLMCut) {
+                relaxed.domain.actions.iter().position(|a| a.name == method_name)
+            } else {
+                None
+            };
+
             let (new_reach_full, _new_index_map, new_out_c) = compute_reach_incremental(
                 &reach_rc,
                 &index_map,
@@ -564,6 +613,7 @@ fn run_internal(
                 &bijection,
                 &h_type,
                 mode,
+                method_action_idx,
             );
             // ── Early deadlock detection (MinCost only) ──────────────────────
             // If any Dead node is already reachable through the resolved reach,
@@ -1193,6 +1243,7 @@ mod tests {
                 prob_upper: 1.0,
                 cost_lower: 2.0,
                 successors: vec![],
+                landmarks: vec![],
             },
             ReachNode {
                 tn: dummy_tn(),
@@ -1201,6 +1252,7 @@ mod tests {
                 prob_upper: 1.0,
                 cost_lower: 5.0,
                 successors: vec![],
+                landmarks: vec![],
             },
         ];
         let f = super::delta_nearest_f_value(&reach, &[0, 1], 3);
@@ -1224,6 +1276,7 @@ mod tests {
             prob_upper: 0.0,
             cost_lower: f64::INFINITY,
             successors: vec![],
+            landmarks: vec![],
         }];
         let f = super::delta_nearest_f_value(&reach, &[0], 1);
         assert!((f - (-2.0)).abs() < 1e-9, "expected -2.0, got {}", f);

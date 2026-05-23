@@ -201,4 +201,49 @@ mod tests {
     fn fond_cost_metro_01() {
         check_fond_cost("test_domains/fond_metro_01.json", HeuristicType::HFF);
     }
+
+    // ── Incremental LM-cut correctness ───────────────────────────────────────
+    // Run a selection of domains with HLMCut and verify the same expected
+    // answer as with HAdd — confirms incremental warm-starting doesn't break
+    // admissibility or correctness.
+
+    #[test]
+    fn prob_chain_n03_lmcut() {
+        check("test_domains/prob_chain_n03.json", 0.9_f64.powi(3), HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn prob_chain_n05_lmcut() {
+        check("test_domains/prob_chain_n05.json", 0.9_f64.powi(5), HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn prob_method_select_k03_lmcut() {
+        check("test_domains/prob_method_select_k03.json", 3.0 / 4.0, HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn prob_method_select_k05_lmcut() {
+        check("test_domains/prob_method_select_k05.json", 5.0 / 6.0, HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn prob_retry_k03_lmcut() {
+        check("test_domains/prob_retry_k03.json", 1.0 - 0.5_f64.powi(3), HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn fond_lights_01_lmcut() {
+        check_fond("test_domains/fond_lights_01.json", HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn fond_lights_02_lmcut() {
+        check_fond("test_domains/fond_lights_02.json", HeuristicType::HLMCut);
+    }
+
+    #[test]
+    fn fond_cost_lights_01_lmcut() {
+        check_fond_cost("test_domains/fond_lights_01.json", HeuristicType::HLMCut);
+    }
 }
