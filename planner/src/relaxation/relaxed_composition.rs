@@ -12,6 +12,8 @@ pub struct RelaxedComposition {
     tdg: TDG,
     htn_tasks: Rc<DomainTasks>,
     pub domain: ClassicalDomain,
+    task_reachable_facts: Vec<Vec<u32>>,
+    task_goal_facts: Vec<u32>,
 }
 
 impl RelaxedComposition {
@@ -34,10 +36,47 @@ impl RelaxedComposition {
         let new_actions = RelaxedComposition::encode(&domain, &new_facts);
         let classic_domain = ClassicalDomain::new(new_facts, new_actions);
         let tdg = TDG::new(&domain.init_tn);
+
+        let n_tasks = domain.tasks.count_tasks() as usize;
+
+        // Precompute: for each domain task_id, the _reachable fact IDs of all
+        // primitives reachable from it via the TDG.
+        let mut task_reachable_facts: Vec<Vec<u32>> = vec![vec![]; n_tasks];
+        for task_id in 0..n_tasks as u32 {
+            let reachables = tdg.task_reachability(task_id);
+            let mut fact_ids: Vec<u32> = Vec::new();
+            for reach_id in reachables {
+                let task = domain.tasks.get_task(reach_id);
+                if let Task::Primitive(prim) = &*task.borrow() {
+                    if !prim.is_deterministic() {
+                        let base = prim.name.clone() + "__determinized";
+                        let n_effects = prim.add_effects.len() as u32;
+                        for i in 0..n_effects {
+                            let name = base.clone() + "_" + &i.to_string() + "_reachable";
+                            fact_ids.push(classic_domain.facts.get_id(&name));
+                        }
+                    } else {
+                        fact_ids.push(classic_domain.facts.get_id(&(prim.name.clone() + "_reachable")));
+                    }
+                }
+            }
+            task_reachable_facts[task_id as usize] = fact_ids;
+        }
+
+        // Precompute: for each domain task_id, the fact ID of its task-name in the
+        // classical encoding (used by compute_goal_state).
+        let mut task_goal_facts: Vec<u32> = vec![0; n_tasks];
+        for task_id in 0..n_tasks as u32 {
+            let name = domain.tasks.get_task(task_id).borrow().get_name();
+            task_goal_facts[task_id as usize] = classic_domain.facts.get_id(&name);
+        }
+
         RelaxedComposition {
             domain: classic_domain,
             htn_tasks: domain.tasks.clone(),
-            tdg: tdg,
+            tdg,
+            task_reachable_facts,
+            task_goal_facts,
         }
     }
 
@@ -100,39 +139,15 @@ impl RelaxedComposition {
     }
 
     pub fn compute_relaxed_state(&self, task_ids: &Vec<u32>, state: &HashSet<u32>) -> HashSet<u32> {
-        let reachables = self.tdg.all_reachables(task_ids);
-        let mut satisfied_preconds = HashSet::new();
-        for task in reachables.iter() {
-            let task = self.htn_tasks.get_task(*task);
-            if let Task::Primitive(prim) = &*task.borrow() {
-                let mut fact_name = prim.name.clone();
-                if !prim.is_deterministic() {
-                    fact_name += "__determinized";
-                    let n_effects = prim.add_effects.len() as u32;
-                    for i in 0..n_effects {
-                        let outcome = fact_name.clone() + "_" + &i.to_string() + "_reachable";
-                        let fact_id = self.domain.facts.get_id(&outcome);
-                        satisfied_preconds.insert(fact_id);
-                    }
-                } else {
-                    fact_name += "_reachable";
-                    let fact_id = self.domain.facts.get_id(&fact_name);
-                    satisfied_preconds.insert(fact_id);
-                }
-            }
+        let mut satisfied_preconds = state.clone();
+        for &task_id in task_ids {
+            satisfied_preconds.extend(&self.task_reachable_facts[task_id as usize]);
         }
-        satisfied_preconds.extend(state);
         satisfied_preconds
     }
 
     pub fn compute_goal_state(&self, task_ids: &Vec<u32>) -> HashSet<u32> {
-        let mut goal = HashSet::new();
-        for task in task_ids {
-            let name = self.htn_tasks.get_task(*task).borrow().get_name();
-            let g = self.domain.facts.get_id(&name);
-            goal.insert(g);
-        }
-        goal
+        task_ids.iter().map(|&id| self.task_goal_facts[id as usize]).collect()
     }
 
 }
