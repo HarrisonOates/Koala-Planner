@@ -25,7 +25,7 @@ impl Facts {
     }
 
     pub fn extend(&self, extension: Vec<String>) -> Facts {
-        let mut max_id = self.ids.iter().map(|(_literal, id)| id).max().unwrap() + 1;
+        let mut max_id = self.ids.iter().map(|(_literal, id)| id).max().copied().unwrap_or(0) + 1;
         let mut new_literals = self.literals.clone();
         let mut new_ids = self.ids.clone();
         for literal in extension.into_iter() {
