@@ -119,4 +119,46 @@ mod tests {
     fn prob_blocksworld_5() {
         check("test_domains/prob_blocksworld_5.json", 0.996, HeuristicType::HAdd);
     }
+
+    // ── FOND (rho=1.0) ───────────────────────────────────────────────────────
+    // Standard FOND domains: AND* must find a strong plan (prob=1.0).
+
+    fn check_fond(json_path: &str, heuristic: HeuristicType) {
+        let problem = read_json_domain(json_path);
+        // rho defaults to 1.0 in FONDProblem — no override needed.
+        let (result, _stats) = run(&problem, heuristic, TiebreakerKind::Combined);
+        match result {
+            SearchResult::Success(policy) => {
+                assert!(
+                    policy.success_probability >= 1.0 - 1e-9,
+                    "{}: expected strong plan (prob=1.0), got prob={:.9}",
+                    json_path,
+                    policy.success_probability
+                );
+            }
+            SearchResult::NoSolution => {
+                panic!(
+                    "{}: expected a strong plan to exist, got NoSolution",
+                    json_path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fond_lights_01() {
+        check_fond("test_domains/fond_lights_01.json", HeuristicType::HFF);
+        check_fond("test_domains/fond_lights_01.json", HeuristicType::HAdd);
+    }
+
+    #[test]
+    fn fond_lights_02() {
+        check_fond("test_domains/fond_lights_02.json", HeuristicType::HFF);
+        check_fond("test_domains/fond_lights_02.json", HeuristicType::HAdd);
+    }
+
+    #[test]
+    fn fond_metro_01() {
+        check_fond("test_domains/fond_metro_01.json", HeuristicType::HFF);
+    }
 }
