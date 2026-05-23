@@ -1,45 +1,86 @@
 use super::*;
-use crate::task_network::Applicability;
-use std::{
-    collections::{HashMap, HashSet},
-    iter::repeat,
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
-    let mut facts: HashMap<u32, u32> = state.iter().cloned().zip(repeat(0 as u32)).collect();
-    let mut actions: HashMap<usize, u32> = HashMap::new();
-    let mut open_goals: HashSet<u32> = goal.difference(state).cloned().collect();
-    while !open_goals.is_empty() {
-        let mut changed = false;
-        let all_facts: HashSet<u32> = facts.keys().cloned().collect();
-        for (i, action) in domain.actions.iter().enumerate() {
-            if action.is_applicable(&all_facts) && (!actions.contains_key(&i)) {
-                let pre_cond = &action.pre_cond;
-                let mut action_weight = 1;
-                for (id, weight) in facts.iter() {
-                    if pre_cond.contains(id) {
-                        action_weight += weight
+    let n = domain.actions.len();
+
+    // Reverse index: fact_id -> action indices that need it as precondition
+    let mut fact_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
+    let mut precond_remaining: Vec<u32> = vec![0; n];
+    let mut precond_cost_sum: Vec<u32> = vec![0; n];
+    for (i, action) in domain.actions.iter().enumerate() {
+        precond_remaining[i] = action.pre_cond.len() as u32;
+        for &f in action.pre_cond.iter() {
+            fact_to_actions.entry(f).or_default().push(i);
+        }
+    }
+
+    // fact_cost: fact_id -> cost (0 for state facts)
+    let mut fact_cost: HashMap<u32, u32> = HashMap::new();
+    let mut remaining_goals = goal.len();
+
+    // Seed with state facts at cost 0
+    let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
+    for &f in state.iter() {
+        fact_cost.insert(f, 0);
+        if goal.contains(&f) {
+            remaining_goals -= 1;
+        }
+        queue.push_back((f, 0));
+    }
+
+    // Fire zero-precondition actions immediately (applicable from any state)
+    for (i, action) in domain.actions.iter().enumerate() {
+        if action.pre_cond.is_empty() && !action.add_effects.is_empty() {
+            let weight = 1u32;
+            for &effect in action.add_effects[0].iter() {
+                if !fact_cost.contains_key(&effect) {
+                    fact_cost.insert(effect, weight);
+                    if goal.contains(&effect) {
+                        remaining_goals -= 1;
                     }
+                    queue.push_back((effect, weight));
                 }
-                actions.insert(i, action_weight);
-                for effect in action.add_effects[0].iter() {
-                    open_goals.remove(effect);
-                    if !facts.contains_key(effect) {
-                        facts.insert(*effect, action_weight);
-                    }
-                }
-                changed = true
             }
         }
-        if changed == false {
-            return f32::INFINITY;
+    }
+
+    // Event-driven propagation: process newly achieved facts, trigger dependent actions
+    while let Some((fact_id, fact_cost_val)) = queue.pop_front() {
+        if remaining_goals == 0 {
+            break;
+        }
+        if let Some(dependents) = fact_to_actions.get(&fact_id) {
+            for &action_idx in dependents {
+                if precond_remaining[action_idx] == 0 {
+                    continue; // already fired
+                }
+                precond_cost_sum[action_idx] += fact_cost_val;
+                precond_remaining[action_idx] -= 1;
+                if precond_remaining[action_idx] == 0 {
+                    let action = &domain.actions[action_idx];
+                    if action.add_effects.is_empty() {
+                        continue;
+                    }
+                    let weight = 1 + precond_cost_sum[action_idx];
+                    for &effect in action.add_effects[0].iter() {
+                        if !fact_cost.contains_key(&effect) {
+                            fact_cost.insert(effect, weight);
+                            if goal.contains(&effect) {
+                                remaining_goals -= 1;
+                            }
+                            queue.push_back((effect, weight));
+                        }
+                    }
+                }
+            }
         }
     }
-    let mut total_cost = 0;
-    for f in goal.iter() {
-        total_cost += facts.get(f).unwrap();
+
+    if remaining_goals > 0 {
+        return f32::INFINITY;
     }
-    total_cost as f32
+    goal.iter().map(|f| fact_cost[f]).sum::<u32>() as f32
 }
 
 #[cfg(test)]

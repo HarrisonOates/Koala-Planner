@@ -1,6 +1,5 @@
-#![allow(dead_code, unused_must_use)]
 use crate::domain_description::ClassicalDomain;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone)]
 pub struct GraphPlan<'a> {
@@ -8,6 +7,8 @@ pub struct GraphPlan<'a> {
     pub facts: HashMap<u32, u32>,
     pub depth: u32,
     domain: &'a ClassicalDomain,
+    layer_to_actions: HashMap<u32, Vec<usize>>,
+    layer_to_facts: HashMap<u32, Vec<u32>>,
 }
 
 impl<'a> GraphPlan<'a> {
@@ -19,84 +20,113 @@ impl<'a> GraphPlan<'a> {
         state: &HashSet<u32>,
         goal: &HashSet<u32>,
     ) -> Option<GraphPlan<'a>> {
-        // initiate first action occurance index in the graphplan to infinity
-        // mapping is of the form (action id -> (precond_counter, first occurance)
-        let mut action_membership: HashMap<usize, (u32, u32)> = HashMap::new();
-        for (i, _action) in domain.actions.iter().enumerate() {
-            action_membership.insert(i, (0, u32::MAX));
-        }
-        // initiate first fact occurance index in the graphplan to infinity or 0 if in state
-        let mut fact_membership = HashMap::new();
-        for fact_id in domain.facts.get_all_ids() {
-            if state.contains(&fact_id) {
-                fact_membership.insert(fact_id, 0);
-            } else {
-                fact_membership.insert(fact_id, u32::MAX);
+        let n_actions = domain.actions.len();
+        let n_facts = domain.facts.count() as usize;
+
+        // Per-action and per-fact placement layers (u32::MAX = unplaced)
+        let mut action_placed: Vec<u32> = vec![u32::MAX; n_actions];
+        let mut fact_placed: Vec<u32> = vec![u32::MAX; n_facts];
+
+        // Reverse index: fact_id -> action indices that need it as a precondition
+        let mut fact_to_actions: Vec<Vec<usize>> = vec![vec![]; n_facts];
+        let mut precond_remaining: Vec<u32> = vec![0; n_actions];
+        for (i, action) in domain.actions.iter().enumerate() {
+            precond_remaining[i] = action.pre_cond.len() as u32;
+            for &f in action.pre_cond.iter() {
+                if (f as usize) < n_facts {
+                    fact_to_actions[f as usize].push(i);
+                }
             }
         }
-        // iterate untill all goals are satisified
-        let mut layer_num = 0;
-        let mut layer_facts = state.clone();
-        while !GraphPlan::all_goals_satisfied(&fact_membership, goal) {
-            // no new facts have been generated
-            if layer_facts.len() == 0 {
-                return None;
+
+        let mut layer_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
+        let mut layer_to_facts: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut facts_map: HashMap<u32, u32> = HashMap::new();
+
+        // Seed with initial state facts at layer 0
+        let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
+        for &f in state.iter() {
+            if (f as usize) < n_facts && fact_placed[f as usize] == u32::MAX {
+                fact_placed[f as usize] = 0;
+                facts_map.insert(f, 0);
+                layer_to_facts.entry(0).or_default().push(f);
+                queue.push_back((f, 0));
             }
-            layer_num += 1;
-            let mut layer_actions = vec![];
-            // Check which actions will be added to this layer
-            for (i, action) in domain.actions.iter().enumerate() {
-                if action_membership.get(&i).unwrap().1 != u32::MAX {
-                    continue;
-                } else {
-                    for new_fact in layer_facts.iter() {
-                        if action.pre_cond.contains(new_fact) {
-                            let precond_counter = action_membership.get(&i).unwrap().0 + 1;
-                            action_membership.get_mut(&i).unwrap().0 = precond_counter;
-                            if precond_counter == action.pre_cond.len() as u32 {
-                                layer_actions.push(i);
+        }
+
+        // Count goals not yet satisfied by the initial state
+        let mut remaining_goals: usize = goal
+            .iter()
+            .filter(|&&f| (f as usize) >= n_facts || fact_placed[f as usize] == u32::MAX)
+            .count();
+
+        // Event-driven BFS: propagate facts through actions
+        while let Some((fact_id, fact_layer)) = queue.pop_front() {
+            if remaining_goals == 0 {
+                break;
+            }
+            let f_idx = fact_id as usize;
+            if f_idx >= n_facts {
+                continue;
+            }
+            for &action_idx in &fact_to_actions[f_idx] {
+                if action_placed[action_idx] != u32::MAX {
+                    continue; // already placed
+                }
+                precond_remaining[action_idx] -= 1;
+                if precond_remaining[action_idx] == 0 {
+                    let action_layer = fact_layer + 1;
+                    action_placed[action_idx] = action_layer;
+                    layer_to_actions.entry(action_layer).or_default().push(action_idx);
+                    let new_fact_layer = action_layer + 1;
+                    let action = &domain.actions[action_idx];
+                    if action.add_effects.is_empty() {
+                        continue;
+                    }
+                    for &effect in &action.add_effects[0] {
+                        if (effect as usize) < n_facts && fact_placed[effect as usize] == u32::MAX {
+                            fact_placed[effect as usize] = new_fact_layer;
+                            facts_map.insert(effect, new_fact_layer);
+                            layer_to_facts.entry(new_fact_layer).or_default().push(effect);
+                            queue.push_back((effect, new_fact_layer));
+                            if goal.contains(&effect) {
+                                remaining_goals -= 1;
                             }
                         }
                     }
                 }
             }
-            // add scheduled actions
-            layer_facts = HashSet::new();
-            for layer_action in layer_actions.iter() {
-                action_membership.get_mut(layer_action).unwrap().1 = layer_num;
-                let effects = &domain.actions[*layer_action].add_effects;
-                if effects.len() > 1 {
-                    panic!("actions are not all outcome determinized");
-                }
-                if effects.len() == 0 {
-                    continue;
-                }
-                // compute achieved facts of this state
-                for effect in effects[0].iter() {
-                    let fact_index = fact_membership.get(effect).unwrap();
-                    if *fact_index == u32::MAX {
-                        layer_facts.insert(*effect);
-                    }
-                }
-            }
-            // add scheduled facts
-            layer_num += 1;
-            for fact in layer_facts.iter() {
-                let fact_index = fact_membership.get_mut(&fact).unwrap();
-                *fact_index = layer_num;
-            }
         }
-        let actions = HashMap::from(
-            action_membership
-                .iter()
-                .map(|(k, (_c, i))| (k.clone(), i.clone()))
-                .collect::<HashMap<usize, u32>>(),
-        );
+
+        if remaining_goals > 0 {
+            return None;
+        }
+
+        // All action indices must be present in the map (unplaced ones keep u32::MAX)
+        let actions_map: HashMap<usize, u32> = action_placed
+            .iter()
+            .enumerate()
+            .map(|(i, &l)| (i, l))
+            .collect();
+        // All fact IDs must be present in the map (unplaced ones keep u32::MAX)
+        for f in domain.facts.get_all_ids() {
+            facts_map.entry(f).or_insert(u32::MAX);
+        }
+
+        let depth = facts_map
+            .values()
+            .filter(|&&l| l != u32::MAX)
+            .cloned()
+            .max()
+            .unwrap_or(0);
+
         Some(GraphPlan {
-            actions: actions,
-            facts: fact_membership,
-            depth: layer_num,
-            domain: domain,
+            actions: actions_map,
+            facts: facts_map,
+            depth,
+            domain,
+            layer_to_actions,
+            layer_to_facts,
         })
     }
 
@@ -112,20 +142,10 @@ impl<'a> GraphPlan<'a> {
 
     // computes the goals that are satisfied in each layer
     pub fn compute_goal_indices(&self, goal: &HashSet<u32>) -> HashMap<u32, HashSet<u32>> {
-        let indices: Vec<(u32, u32)> = self
-            .facts
-            .iter()
-            .filter(|(id, _index)| goal.contains(&id))
-            .map(|(id, index)| (id.clone(), index.clone()))
-            .collect();
         let mut mapping: HashMap<u32, HashSet<u32>> = HashMap::new();
-        for (g, index) in indices {
-            if mapping.contains_key(&index) {
-                if let Some(val) = mapping.get_mut(&index) {
-                    val.insert(g);
-                }
-            } else {
-                mapping.insert(index, HashSet::from([g]));
+        for &g in goal.iter() {
+            if let Some(&layer) = self.facts.get(&g) {
+                mapping.entry(layer).or_default().insert(g);
             }
         }
         mapping
@@ -135,24 +155,20 @@ impl<'a> GraphPlan<'a> {
         if index % 2 == 0 {
             panic!("actions are odd layers")
         }
-        self.actions
-            .iter()
-            .filter(|(_id, number)| **number == index)
-            .map(|(id, _number)| id)
-            .cloned()
-            .collect()
+        self.layer_to_actions
+            .get(&index)
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     pub fn get_fact_layer(&self, index: u32) -> HashSet<u32> {
         if index % 2 == 1 {
             panic!("facts are even layer")
         }
-        self.facts
-            .iter()
-            .filter(|(_id, layer)| **layer == index)
-            .map(|(id, _layer)| id)
-            .cloned()
-            .collect()
+        self.layer_to_facts
+            .get(&index)
+            .map(|v| v.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -191,7 +207,7 @@ impl<'a> std::fmt::Display for GraphPlan<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{domain_description::Facts, task_network::PrimitiveAction};
+    use crate::{domain_description::Facts, heuristics::PrimitiveAction};
 
     pub fn generate_domain() -> ClassicalDomain {
         let p1 = PrimitiveAction::new(
