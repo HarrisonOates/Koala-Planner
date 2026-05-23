@@ -1,16 +1,17 @@
+#![allow(dead_code, unused_must_use)]
 use crate::domain_description::ClassicalDomain;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone)]
 pub struct GraphPlan<'a> {
-    pub actions: HashMap<usize, u32>,
-    pub facts: HashMap<u32, u32>,
+    /// fact_placed[fact_id] = layer at which the fact was first placed (u32::MAX = unplaced).
+    pub fact_placed: Vec<u32>,
     pub depth: u32,
     domain: &'a ClassicalDomain,
     layer_to_actions: HashMap<u32, Vec<usize>>,
     layer_to_facts: HashMap<u32, Vec<u32>>,
     pub(crate) effect_to_actions: Vec<Vec<usize>>, // fact_id -> actions that produce it
-    pub(crate) action_layer: Vec<u32>,             // action_idx -> layer (Vec mirror of actions)
+    pub(crate) action_layer: Vec<u32>,             // action_idx -> layer (u32::MAX = unplaced)
 }
 
 impl<'a> GraphPlan<'a> {
@@ -34,16 +35,15 @@ impl<'a> GraphPlan<'a> {
 
         let mut layer_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
         let mut layer_to_facts: HashMap<u32, Vec<u32>> = HashMap::new();
-        let mut facts_map: HashMap<u32, u32> = HashMap::new();
         let mut effect_to_actions: Vec<Vec<usize>> = vec![vec![]; n_facts];
         let mut action_layer_vec: Vec<u32> = vec![u32::MAX; n_actions];
 
         // Seed with initial state facts at layer 0
         let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
         for &f in state.iter() {
-            if (f as usize) < n_facts && fact_placed[f as usize] == u32::MAX {
-                fact_placed[f as usize] = 0;
-                facts_map.insert(f, 0);
+            let fi = f as usize;
+            if fi < n_facts && fact_placed[fi] == u32::MAX {
+                fact_placed[fi] = 0;
                 layer_to_facts.entry(0).or_default().push(f);
                 queue.push_back((f, 0));
             }
@@ -80,12 +80,12 @@ impl<'a> GraphPlan<'a> {
                         continue;
                     }
                     for &effect in &action.add_effects[0] {
-                        if (effect as usize) < n_facts {
-                            effect_to_actions[effect as usize].push(action_idx);
+                        let ei = effect as usize;
+                        if ei < n_facts {
+                            effect_to_actions[ei].push(action_idx);
                         }
-                        if (effect as usize) < n_facts && fact_placed[effect as usize] == u32::MAX {
-                            fact_placed[effect as usize] = new_fact_layer;
-                            facts_map.insert(effect, new_fact_layer);
+                        if ei < n_facts && fact_placed[ei] == u32::MAX {
+                            fact_placed[ei] = new_fact_layer;
                             layer_to_facts.entry(new_fact_layer).or_default().push(effect);
                             queue.push_back((effect, new_fact_layer));
                             if goal.contains(&effect) {
@@ -101,27 +101,10 @@ impl<'a> GraphPlan<'a> {
             return None;
         }
 
-        // All action indices must be present in the map (unplaced ones keep u32::MAX)
-        let actions_map: HashMap<usize, u32> = action_placed
-            .iter()
-            .enumerate()
-            .map(|(i, &l)| (i, l))
-            .collect();
-        // All fact IDs must be present in the map (unplaced ones keep u32::MAX)
-        for f in domain.facts.get_all_ids() {
-            facts_map.entry(f).or_insert(u32::MAX);
-        }
-
-        let depth = facts_map
-            .values()
-            .filter(|&&l| l != u32::MAX)
-            .cloned()
-            .max()
-            .unwrap_or(0);
+        let depth = fact_placed.iter().filter(|&&l| l != u32::MAX).cloned().max().unwrap_or(0);
 
         Some(GraphPlan {
-            actions: actions_map,
-            facts: facts_map,
+            fact_placed,
             depth,
             domain,
             layer_to_actions,
@@ -131,22 +114,17 @@ impl<'a> GraphPlan<'a> {
         })
     }
 
-    fn all_goals_satisfied(indices: &HashMap<u32, u32>, goal: &HashSet<u32>) -> bool {
-        for fact in goal.iter() {
-            let val = indices.get(fact).unwrap();
-            if *val == u32::MAX {
-                return false;
-            }
-        }
-        return true;
-    }
-
     // computes the goals that are satisfied in each layer
     pub fn compute_goal_indices(&self, goal: &HashSet<u32>) -> HashMap<u32, HashSet<u32>> {
         let mut mapping: HashMap<u32, HashSet<u32>> = HashMap::new();
+        let n = self.fact_placed.len();
         for &g in goal.iter() {
-            if let Some(&layer) = self.facts.get(&g) {
-                mapping.entry(layer).or_default().insert(g);
+            let gi = g as usize;
+            if gi < n {
+                let layer = self.fact_placed[gi];
+                if layer != u32::MAX {
+                    mapping.entry(layer).or_default().insert(g);
+                }
             }
         }
         mapping
@@ -208,7 +186,7 @@ impl<'a> std::fmt::Display for GraphPlan<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{domain_description::Facts, heuristics::PrimitiveAction};
+    use crate::{domain_description::Facts, task_network::PrimitiveAction};
 
     pub fn generate_domain() -> ClassicalDomain {
         let p1 = PrimitiveAction::new(
@@ -255,22 +233,20 @@ mod test {
         let domain = generate_domain();
         let graphplan =
             GraphPlan::build_graph(&domain, &HashSet::from([0]), &HashSet::from([4])).unwrap();
-        let (actions, facts) = (graphplan.actions.clone(), graphplan.facts.clone());
-        for action_id in 0..actions.len() {
-            assert_eq!(actions.contains_key(&(action_id as usize)), true)
-        }
-        for fact_id in 0..facts.len() {
-            assert_eq!(facts.contains_key(&(fact_id as u32)), true)
-        }
-        assert_eq!(*actions.get(&0).unwrap(), 1);
-        assert_eq!(*actions.get(&1).unwrap(), 3);
-        assert_eq!(*actions.get(&2).unwrap(), 3);
-        assert_eq!(*actions.get(&3).unwrap(), 5);
-        assert_eq!(*facts.get(&0).unwrap(), 0);
-        assert_eq!(*facts.get(&1).unwrap(), 2);
-        assert_eq!(*facts.get(&2).unwrap(), 4);
-        assert_eq!(*facts.get(&3).unwrap(), 4);
-        assert_eq!(*facts.get(&4).unwrap(), 6);
+
+        // Action layers (action_layer Vec)
+        assert_eq!(graphplan.action_layer[0], 1);
+        assert_eq!(graphplan.action_layer[1], 3);
+        assert_eq!(graphplan.action_layer[2], 3);
+        assert_eq!(graphplan.action_layer[3], 5);
+
+        // Fact layers (fact_placed Vec)
+        assert_eq!(graphplan.fact_placed[0], 0);
+        assert_eq!(graphplan.fact_placed[1], 2);
+        assert_eq!(graphplan.fact_placed[2], 4);
+        assert_eq!(graphplan.fact_placed[3], 4);
+        assert_eq!(graphplan.fact_placed[4], 6);
+
         assert_eq!(graphplan.depth, 6);
         assert_eq!(graphplan.get_action_layer(1), HashSet::from([0]));
         assert_eq!(graphplan.get_action_layer(3), HashSet::from([1, 2]));

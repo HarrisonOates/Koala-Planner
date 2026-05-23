@@ -1,22 +1,27 @@
 use super::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
     let n = domain.actions.len();
+    let n_facts = domain.facts.count() as usize;
     let fact_to_actions = &domain.fact_to_actions;
     let mut precond_remaining: Vec<u32> = domain.precond_counts.clone();
     let mut precond_cost_sum: Vec<u32> = vec![0; n];
 
-    let mut fact_cost: HashMap<u32, u32> = HashMap::new();
+    // Vec-based fact costs: u32::MAX = not yet achieved. Avoids HashMap allocation and hashing.
+    let mut fact_cost: Vec<u32> = vec![u32::MAX; n_facts];
     let mut remaining_goals = goal.len();
 
     let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
     for &f in state.iter() {
-        fact_cost.insert(f, 0);
-        if goal.contains(&f) {
-            remaining_goals -= 1;
+        let fi = f as usize;
+        if fi < n_facts && fact_cost[fi] == u32::MAX {
+            fact_cost[fi] = 0;
+            if goal.contains(&f) {
+                remaining_goals -= 1;
+            }
+            queue.push_back((f, 0));
         }
-        queue.push_back((f, 0));
     }
 
     // Fire zero-precondition actions immediately (applicable from any state)
@@ -24,8 +29,9 @@ pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>
         if action.pre_cond.is_empty() && !action.add_effects.is_empty() {
             let weight = 1u32;
             for &effect in action.add_effects[0].iter() {
-                if !fact_cost.contains_key(&effect) {
-                    fact_cost.insert(effect, weight);
+                let ei = effect as usize;
+                if ei < n_facts && fact_cost[ei] == u32::MAX {
+                    fact_cost[ei] = weight;
                     if goal.contains(&effect) {
                         remaining_goals -= 1;
                     }
@@ -55,8 +61,9 @@ pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>
                     }
                     let weight = 1 + precond_cost_sum[action_idx];
                     for &effect in action.add_effects[0].iter() {
-                        if !fact_cost.contains_key(&effect) {
-                            fact_cost.insert(effect, weight);
+                        let ei = effect as usize;
+                        if ei < n_facts && fact_cost[ei] == u32::MAX {
+                            fact_cost[ei] = weight;
                             if goal.contains(&effect) {
                                 remaining_goals -= 1;
                             }
@@ -71,7 +78,12 @@ pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>
     if remaining_goals > 0 {
         return f32::INFINITY;
     }
-    goal.iter().map(|f| fact_cost[f]).sum::<u32>() as f32
+    goal.iter()
+        .map(|&f| {
+            let fi = f as usize;
+            if fi < n_facts { fact_cost[fi] } else { 0 }
+        })
+        .sum::<u32>() as f32
 }
 
 #[cfg(test)]

@@ -51,6 +51,104 @@ pub fn h_lmcut_incremental(
     h_lmcut_core(domain, state, goal, &carried)
 }
 
+/// Compute h_max via Dijkstra-style event-driven propagation.
+///
+/// Uses a min-heap to process facts in non-decreasing cost order, which is
+/// required for correctness when action costs are non-uniform (e.g., zero-cost
+/// method actions in RelaxedComposition).  Each action fires exactly once, when
+/// its last (most expensive) precondition is settled.
+///
+/// Returns a Vec<u32> of length n_facts; entry `f` is h_max(f) (u32::MAX = unreachable).
+fn compute_hmax_event_driven(
+    domain: &ClassicalDomain,
+    state: &HashSet<u32>,
+    costs: &[u32],
+    n_facts: usize,
+) -> Vec<u32> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
+    let n_actions = domain.actions.len();
+    let fact_to_actions = &domain.fact_to_actions;
+
+    let mut precond_remaining: Vec<u32> = domain.precond_counts.clone();
+    let mut precond_cost_max: Vec<u32> = vec![0; n_actions];
+    let mut hmax: Vec<u32> = vec![u32::MAX; n_facts];
+
+    // Min-heap keyed by (h_max_value, fact_id): processes cheapest facts first (Dijkstra).
+    let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
+
+    for &f in state {
+        let fi = f as usize;
+        if fi < n_facts && hmax[fi] == u32::MAX {
+            hmax[fi] = 0;
+            heap.push(Reverse((0, fi)));
+        }
+    }
+
+    // Fire zero-precondition actions immediately (they add facts before any BFS step).
+    for (idx, action) in domain.actions.iter().enumerate() {
+        if action.pre_cond.is_empty() && !action.add_effects.is_empty() {
+            let act_cost = costs[idx];
+            if act_cost == u32::MAX {
+                continue;
+            }
+            for &eff in &action.add_effects[0] {
+                let ei = eff as usize;
+                if ei < n_facts && act_cost < hmax[ei] {
+                    hmax[ei] = act_cost;
+                    heap.push(Reverse((act_cost, ei)));
+                }
+            }
+        }
+    }
+
+    while let Some(Reverse((fi_val, fi))) = heap.pop() {
+        if fi_val > hmax[fi] {
+            continue; // stale entry superseded by a cheaper path
+        }
+        if fi >= fact_to_actions.len() {
+            continue;
+        }
+        for &action_idx in &fact_to_actions[fi] {
+            if precond_remaining[action_idx] == 0 {
+                continue; // already fired
+            }
+            // With Dijkstra order, each new precondition is ≥ the previous ones,
+            // so fi_val is the running max of all precondition costs seen so far.
+            if fi_val > precond_cost_max[action_idx] {
+                precond_cost_max[action_idx] = fi_val;
+            }
+            precond_remaining[action_idx] -= 1;
+            if precond_remaining[action_idx] == 0 {
+                let action = &domain.actions[action_idx];
+                if action.add_effects.is_empty() {
+                    continue;
+                }
+                let act_cost = costs[action_idx];
+                if act_cost == u32::MAX {
+                    continue;
+                }
+                let max_pre = precond_cost_max[action_idx];
+                let fact_val = if max_pre == u32::MAX {
+                    u32::MAX
+                } else {
+                    act_cost.saturating_add(max_pre)
+                };
+                for &eff in &action.add_effects[0] {
+                    let ei = eff as usize;
+                    if ei < n_facts && fact_val < hmax[ei] {
+                        hmax[ei] = fact_val;
+                        heap.push(Reverse((fact_val, ei)));
+                    }
+                }
+            }
+        }
+    }
+
+    hmax
+}
+
 /// Core LM-cut computation.
 ///
 /// `carried_cuts` are landmark cuts already paid for (from a parent node).
@@ -94,39 +192,8 @@ fn h_lmcut_core(
     let mut all_cuts: LandmarkCuts = carried_cuts.to_vec();
 
     loop {
-        // === 1. h_max fixed-point propagation ===
-        let mut hmax = vec![u32::MAX; n_facts];
-        for &f in state {
-            let fi = f as usize;
-            if fi < n_facts {
-                hmax[fi] = 0;
-            }
-        }
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for (idx, action) in domain.actions.iter().enumerate() {
-                if action.add_effects.is_empty() {
-                    continue;
-                }
-                let act_hmax = action.pre_cond.iter().fold(0u32, |acc, &p| {
-                    let pv = if (p as usize) < n_facts { hmax[p as usize] } else { u32::MAX };
-                    if acc == u32::MAX || pv == u32::MAX { u32::MAX } else { acc.max(pv) }
-                });
-                let fact_val = if act_hmax == u32::MAX {
-                    u32::MAX
-                } else {
-                    costs[idx].saturating_add(act_hmax)
-                };
-                for &f in &action.add_effects[0] {
-                    let fi = f as usize;
-                    if fi < n_facts && fact_val < hmax[fi] {
-                        hmax[fi] = fact_val;
-                        changed = true;
-                    }
-                }
-            }
-        }
+        // === 1. h_max via event-driven propagation (replaces naive fixed-point scan) ===
+        let hmax = compute_hmax_event_driven(domain, state, &costs, n_facts);
 
         let goal_hmax = goal.iter().fold(0u32, |acc, &g| {
             let gv = if (g as usize) < n_facts { hmax[g as usize] } else { u32::MAX };
