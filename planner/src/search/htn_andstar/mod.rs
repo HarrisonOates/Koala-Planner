@@ -1,5 +1,5 @@
 mod domain_tests;
-mod partial_policy;
+pub(crate) mod partial_policy;
 
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -11,8 +11,8 @@ use crate::task_network::HTN;
 
 pub use partial_policy::{SearchMode, TiebreakerKind};
 use partial_policy::{
-    compute_reach_sig, make_key, MemoKey, NodeKind, PartialPolicyState, PolicyAssignment,
-    PolicyLink, ReachNode, ReachSig,
+    compute_reach_sig, delta_nearest_f_value, make_key, MemoKey, NodeKind, PartialPolicyState,
+    PolicyAssignment, PolicyLink, ReachNode, ReachSig,
 };
 
 use super::progress;
@@ -350,22 +350,6 @@ fn compute_reach_incremental(
 // ── MinCost helpers ─────────────────────────────────────────────────────────
 
 /// Admissible lower bound on total plan assignments for MinCost AND*.
-/// f(π) = −(|π| + max{ cost_lower[c] : c ∈ Out_C(π) })
-/// Admissible lower bound on total assignments: -(policy_size + max h at frontier).
-/// INFINITY cost_lower values (heuristic returned no estimate) are ignored — 0 is
-/// admissible and keeps the search complete on domains where h_val overestimates.
-fn fond_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64 {
-    if out_c.is_empty() {
-        return -(policy_size as f64);
-    }
-    let h_max = out_c
-        .iter()
-        .map(|&i| reach[i].cost_lower)
-        .filter(|&c| c != f64::INFINITY)
-        .fold(0.0_f64, |acc, c| acc.max(c));
-    -(policy_size as f64 + h_max)
-}
-
 /// Returns true iff no Dead node is reachable from reach[0].
 /// A closed FOND policy with a reachable Dead node is not a valid strong plan.
 fn is_reach_proper(reach: &[ReachNode]) -> bool {
@@ -434,7 +418,7 @@ fn run_internal(
     );
     let f_value = match mode {
         SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&init_reach),
-        SearchMode::MinCost => fond_f_value(&init_reach, &init_out_c, 0),
+        SearchMode::MinCost => delta_nearest_f_value(&init_reach, &init_out_c, 0),
     };
     let init_sig = compute_reach_sig(&init_reach, f_value, 0);
 
@@ -582,32 +566,35 @@ fn run_internal(
                 &h_type,
                 mode,
             );
+            // ── Early deadlock detection (MinCost only) ──────────────────────
+            // If any Dead node is already reachable through the resolved reach,
+            // no extension of Out_C can fix it — prune immediately.
+            if mode == SearchMode::MinCost && !is_reach_proper(&new_reach_full) {
+                continue;
+            }
             let new_f = match mode {
                 SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_reach_full),
                 SearchMode::MinCost => {
-                    fond_f_value(&new_reach_full, &new_out_c, pi.policy_size + 1)
+                    delta_nearest_f_value(&new_reach_full, &new_out_c, pi.policy_size + 1)
                 }
             };
 
             let should_prune = match mode {
                 SearchMode::MaxProb => new_f < best_closed_prob.max(problem.rho),
-                SearchMode::MinCost => false, // fond_f_value never returns NEG_INFINITY
+                SearchMode::MinCost => false, // admissible heuristic — no threshold-based pruning needed
             };
             if should_prune {
                 continue;
             }
 
-            // For deduplication, use a f-value that captures the full reach structure.
-            // fond_f_value depends only on policy_size + h_max, so two states with the
-            // same frontier but different reach graphs would share the same sig and one
-            // would be wrongly deduplicated.  Using VI for the sig key (even in MinCost
-            // mode) gives a structurally accurate proxy.
-            let sig_f = match mode {
-                SearchMode::MaxProb => new_f,
-                SearchMode::MinCost => {
-                    PartialPolicyState::compute_f_by_vi(&new_reach_full)
-                }
-            };
+            // Signature f-value for deduplication.
+            // MaxProb: use the VI probability (already computed as new_f).
+            // MinCost (FOND): use delta_nearest directly — the reach graph topology
+            // (compound node states + TN structures in compute_reach_sig) already
+            // fully distinguishes reach graphs. VI is binary-valued in FOND and adds
+            // no extra discrimination, and the reference implementation (Messa &
+            // Pereira) uses only structural state IDs, not VI values, for signatures.
+            let sig_f = new_f;
             let sig = compute_reach_sig(&new_reach_full, sig_f, pi.policy_size + 1);
             if !seen.contains(&sig) {
                 seen.insert(sig);
@@ -1175,19 +1162,21 @@ mod tests {
         }
     }
 
-    // ── fond_f_value unit tests ───────────────────────────────────────────
+    // ── delta_nearest_f_value unit tests ────────────────────────────────────
 
     #[test]
-    fn fond_f_value_closed_policy_cost() {
-        // Closed policy (out_c empty) with 3 assignments → f = -(3 + 0) = -3
-        let f = super::fond_f_value(&[], &[], 3);
+    fn delta_nearest_closed_policy_cost() {
+        // Closed policy (out_c empty) with 3 assignments → f = -(3) = -3
+        let f = super::delta_nearest_f_value(&[], &[], 3);
         assert!((f - (-3.0)).abs() < 1e-9, "expected -3.0, got {}", f);
     }
 
     #[test]
-    fn fond_f_value_uses_max_of_frontier() {
+    fn delta_nearest_two_frontier_nodes() {
         // out_c = [0, 1], cost_lower = [2.0, 5.0], policy_size = 3
-        // f = -(3 + max(2.0, 5.0)) = -8.0
+        // count = 5, h_vals = [5.0, 2.0] desc
+        // delta = max(5+0, 2+1) = 5
+        // min_out_c_h = 2.0, min_h_term = 1, lb = max(5, 5+1) = 6  → f = -6.0
         use super::{NodeKind, ReachNode};
         let dummy_tn = || Rc::new(HTN::new(
             std::collections::BTreeSet::new(),
@@ -1213,14 +1202,14 @@ mod tests {
                 successors: vec![],
             },
         ];
-        let f = super::fond_f_value(&reach, &[0, 1], 3);
-        assert!((f - (-8.0)).abs() < 1e-9, "expected -8.0, got {}", f);
+        let f = super::delta_nearest_f_value(&reach, &[0, 1], 3);
+        assert!((f - (-6.0)).abs() < 1e-9, "expected -6.0, got {}", f);
     }
 
     #[test]
-    fn fond_f_value_infinity_cost_lower_treated_as_zero() {
-        // INFINITY cost_lower (heuristic has no estimate) is filtered out; 0 is used instead.
-        // policy_size=1, out_c=[0], cost_lower=INF → h_max=0 → f = -(1+0) = -1.0
+    fn delta_nearest_infinity_cost_lower() {
+        // INFINITY cost_lower is filtered from h_vals; count = policy_size + out_c = 2
+        // No finite h → delta = NEG_INFINITY → lb = count = 2  → f = -2.0
         use super::{NodeKind, ReachNode};
         let reach = vec![ReachNode {
             tn: Rc::new(HTN::new(
@@ -1235,7 +1224,7 @@ mod tests {
             cost_lower: f64::INFINITY,
             successors: vec![],
         }];
-        let f = super::fond_f_value(&reach, &[0], 1);
-        assert!((f - (-1.0)).abs() < 1e-9, "expected -1.0, got {}", f);
+        let f = super::delta_nearest_f_value(&reach, &[0], 1);
+        assert!((f - (-2.0)).abs() < 1e-9, "expected -2.0, got {}", f);
     }
 }
