@@ -236,7 +236,8 @@ fn compute_reach_incremental(
     // Clone the full parent graph — already-explored nodes cost one clone
     // instead of a full BFS re-traversal.
     let mut reach: Vec<Option<ReachNode>> = parent_reach.iter().cloned().map(Some).collect();
-    let mut index_map = parent_index_map.clone();
+    let mut index_map = HashMap::with_capacity(parent_index_map.len() + 16);
+    index_map.clone_from(parent_index_map);
     // Carry over remaining unresolved compound nodes (skip node_idx at [0]).
     let mut out_c: Vec<usize> = parent_out_c[1..].to_vec();
 

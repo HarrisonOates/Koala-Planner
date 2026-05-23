@@ -1,8 +1,5 @@
 #![allow(dead_code)]
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    iter::repeat,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Graph {
@@ -33,19 +30,15 @@ impl Graph {
 
     pub fn get_edges(&self) -> Vec<(u32, u32)> {
         self.edges
-            .clone()
-            .into_iter()
-            .map(|(k, v)| repeat(k).zip(v).collect::<Vec<_>>())
-            .flatten()
+            .iter()
+            .flat_map(|(&k, v)| v.iter().map(move |&dst| (k, dst)))
             .collect()
     }
 
     pub fn convert_edges_to_vec(edges: &HashMap<u32, BTreeSet<u32>>) -> Vec<(u32, u32)> {
         edges
-            .clone()
-            .into_iter()
-            .map(|(k, v)| repeat(k).zip(v).collect::<Vec<_>>())
-            .flatten()
+            .iter()
+            .flat_map(|(&k, v)| v.iter().map(move |&dst| (k, dst)))
             .collect()
     }
 
@@ -154,8 +147,7 @@ impl Graph {
 
         let orderings = orderings
             .into_iter()
-            .map(|(k, v)| repeat(k).zip(v).collect::<Vec<_>>())
-            .flatten()
+            .flat_map(|(k, v)| v.into_iter().map(move |dst| (k, dst)))
             .collect();
         Graph::new(nodes, orderings)
     }

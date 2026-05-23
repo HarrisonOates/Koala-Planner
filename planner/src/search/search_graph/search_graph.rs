@@ -3,7 +3,7 @@ use h_type::HeuristicType;
 
 use crate::domain_description::Facts;
 use crate::relaxation::OutcomeDeterminizer;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use super::*;
@@ -101,10 +101,10 @@ impl SearchGraph {
     }
 
     pub fn find_a_tip_node(&self) -> u32 {
-        let mut working_set = BTreeSet::from([self.root]);
+        let mut working_set: Vec<u32> = vec![self.root];
         let (mut candidate, depth, cost) = (u32::MIN, u16::MIN, f32::NEG_INFINITY);
         while !working_set.is_empty() {
-            let x = working_set.pop_first().unwrap();
+            let x = working_set.pop().unwrap();
             let node = self.ids.get(&x).unwrap().borrow_mut();
             match node.status {
                 NodeStatus::Solved => {

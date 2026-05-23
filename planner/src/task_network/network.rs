@@ -120,10 +120,9 @@ impl HTN {
         let max_id = *network_max_id.max(subgraph_max_id) + 1;
         let relabeled_subgraph = HTN::relabel_nodes(&method.decomposition, max_id);
         // Creating Graph
-        let mut new_graph = self.network.clone();
         let outgoing_edges = self.network.get_outgoing_edges(id);
         let incoming_edges = self.network.get_incoming_edges(id);
-        new_graph = new_graph.remove_node(id);
+        let mut new_graph = self.network.remove_node(id);
         new_graph = new_graph.add_subgraph(
             Graph::new(
                 relabeled_subgraph.get_nodes().clone(),
