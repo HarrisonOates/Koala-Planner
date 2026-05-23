@@ -9,6 +9,8 @@ pub struct GraphPlan<'a> {
     domain: &'a ClassicalDomain,
     layer_to_actions: HashMap<u32, Vec<usize>>,
     layer_to_facts: HashMap<u32, Vec<u32>>,
+    pub(crate) effect_to_actions: Vec<Vec<usize>>, // fact_id -> actions that produce it
+    pub(crate) action_layer: Vec<u32>,             // action_idx -> layer (Vec mirror of actions)
 }
 
 impl<'a> GraphPlan<'a> {
@@ -42,6 +44,8 @@ impl<'a> GraphPlan<'a> {
         let mut layer_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
         let mut layer_to_facts: HashMap<u32, Vec<u32>> = HashMap::new();
         let mut facts_map: HashMap<u32, u32> = HashMap::new();
+        let mut effect_to_actions: Vec<Vec<usize>> = vec![vec![]; n_facts];
+        let mut action_layer_vec: Vec<u32> = vec![u32::MAX; n_actions];
 
         // Seed with initial state facts at layer 0
         let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
@@ -77,6 +81,7 @@ impl<'a> GraphPlan<'a> {
                 if precond_remaining[action_idx] == 0 {
                     let action_layer = fact_layer + 1;
                     action_placed[action_idx] = action_layer;
+                    action_layer_vec[action_idx] = action_layer;
                     layer_to_actions.entry(action_layer).or_default().push(action_idx);
                     let new_fact_layer = action_layer + 1;
                     let action = &domain.actions[action_idx];
@@ -84,6 +89,9 @@ impl<'a> GraphPlan<'a> {
                         continue;
                     }
                     for &effect in &action.add_effects[0] {
+                        if (effect as usize) < n_facts {
+                            effect_to_actions[effect as usize].push(action_idx);
+                        }
                         if (effect as usize) < n_facts && fact_placed[effect as usize] == u32::MAX {
                             fact_placed[effect as usize] = new_fact_layer;
                             facts_map.insert(effect, new_fact_layer);
@@ -127,6 +135,8 @@ impl<'a> GraphPlan<'a> {
             domain,
             layer_to_actions,
             layer_to_facts,
+            effect_to_actions,
+            action_layer: action_layer_vec,
         })
     }
 

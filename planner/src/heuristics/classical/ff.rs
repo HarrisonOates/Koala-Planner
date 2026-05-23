@@ -14,71 +14,46 @@ pub fn h_ff(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>)
 fn plan_length(domain: &ClassicalDomain, graphplan: GraphPlan, goal_state: &HashSet<u32>) -> u32 {
     let mut len = 0;
     let mut g = graphplan.compute_goal_indices(goal_state);
-    let mut marks = HashMap::new();
-    for i in 0..graphplan.depth + 1 {
-        marks.insert(i, HashSet::new());
-    }
-    for i in (1..graphplan.depth + 1).rev() {
-        if g.get(&i).is_none() {
-            continue;
-        }
-        let open_goals: HashSet<u32> = g
-            .get(&i)
-            .unwrap()
-            .difference(marks.get(&i).unwrap())
+    let depth = graphplan.depth as usize;
+
+    // Vec-indexed marks — layers are dense integers 0..=depth
+    let mut marks: Vec<HashSet<u32>> = vec![HashSet::new(); depth + 1];
+
+    // Initial state facts are constant — hoist out of the per-goal loop
+    let initial_facts = graphplan.get_fact_layer(0);
+
+    for i in (1..=depth).rev() {
+        let i = i as u32;
+        let Some(goals_at_layer) = g.get(&i) else { continue };
+        let open_goals: Vec<u32> = goals_at_layer
+            .difference(&marks[i as usize])
             .cloned()
             .collect();
-        for open_goal in open_goals.iter() {
-            let actions = graphplan.get_action_layer(i - 1);
-            let mut actions = domain.get_actions_by_index(actions);
-            // select only actions that produce this goal
-            actions = actions
+
+        for open_goal in &open_goals {
+            // Direct lookup via effect_to_actions: find the cheapest action at layer i-1
+            // that produces open_goal, without scanning the whole layer.
+            let min_action_idx = graphplan.effect_to_actions[*open_goal as usize]
                 .iter()
-                .filter(|x| {
-                    if x.add_effects.len() > 1 {
-                        panic!("actions are not determinized")
-                    }
-                    x.add_effects[0].contains(open_goal)
-                })
-                .map(|x| *x)
-                .collect();
-            //select min cost action
-            let min_action = *actions
-                .iter()
-                .reduce(|acc, e| if acc.cost > e.cost { e } else { acc })
+                .filter(|&&a| graphplan.action_layer[a] == i - 1)
+                .min_by_key(|&&a| domain.actions[a].cost)
+                .copied()
                 .unwrap();
+            let min_action = &domain.actions[min_action_idx];
             len += 1;
-            // add preconds as new goals
-            // // not satisifed at the initial state
-            let mut open_preconds: HashSet<u32> = min_action
-                .pre_cond
-                .difference(&graphplan.get_fact_layer(0))
-                .cloned()
-                .collect();
-            // // not satisfied by action
-            open_preconds = open_preconds
-                .difference(marks.get(&(i - 1)).unwrap())
-                .cloned()
-                .collect();
-            // add open preconds to their corresponding layer
-            for precond in open_preconds.iter() {
-                let membership_layer = graphplan.facts.get(&precond).unwrap();
-                match g.get_mut(membership_layer) {
-                    Some(set) => {
-                        set.insert(precond.clone());
-                    }
-                    None => {
-                        g.insert(*membership_layer, HashSet::from([*precond]));
-                    }
+
+            // Add preconditions as new goals: skip those in the initial state or already marked
+            for &precond in min_action.pre_cond.difference(&initial_facts) {
+                if !marks[(i - 1) as usize].contains(&precond) {
+                    let layer = *graphplan.facts.get(&precond).unwrap();
+                    g.entry(layer).or_default().insert(precond);
                 }
             }
-            for add in min_action.add_effects[0].iter() {
-                if let Some(set) = marks.get_mut(&i) {
-                    set.insert(add.clone());
-                }
-                if let Some(set) = marks.get_mut(&(i - 1)) {
-                    set.insert(add.clone());
-                }
+
+            // Mark all effects of min_action at layers i and i-1
+            for &add in &min_action.add_effects[0] {
+                marks[i as usize].insert(add);
+                marks[(i - 1) as usize].insert(add);
             }
         }
     }
