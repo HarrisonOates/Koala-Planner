@@ -11,26 +11,30 @@
 ///   prob_retry k tokens, p=0.5 → 1 - 0.5^k
 #[cfg(test)]
 mod tests {
-    use crate::domain_description::read_json_domain;
-    use crate::search::{HeuristicType, SearchResult};
     use super::super::run;
     use super::super::TiebreakerKind;
+    use crate::domain_description::read_json_domain;
+    use crate::search::{HeuristicType, SearchResult};
 
     const TOLERANCE: f64 = 1e-4;
 
-    fn check(json_path: &str, expected: f64) {
+    fn check(json_path: &str, expected: f64, heuristic: HeuristicType) {
         let mut problem = read_json_domain(json_path);
         problem.rho = 0.0;
-        let (result, _) = run(&problem, HeuristicType::HAdd, TiebreakerKind::Combined);
+        let (result, _) = run(&problem, heuristic, TiebreakerKind::Combined);
         match result {
             SearchResult::Success(policy) => {
                 assert!(
                     (policy.success_probability - expected).abs() < TOLERANCE,
                     "{}: expected {:.6}, got {:.6}",
-                    json_path, expected, policy.success_probability
+                    json_path,
+                    expected,
+                    policy.success_probability
                 );
             }
-            SearchResult::NoSolution => panic!("{}: expected success with prob {:.6}", json_path, expected),
+            SearchResult::NoSolution => {
+                panic!("{}: expected success with prob {:.6}", json_path, expected)
+            }
         }
     }
 
@@ -39,12 +43,12 @@ mod tests {
 
     #[test]
     fn prob_chain_n03() {
-        check("test_domains/prob_chain_n03.json", 0.9_f64.powi(3));
+        check("test_domains/prob_chain_n03.json", 0.9_f64.powi(3), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_chain_n05() {
-        check("test_domains/prob_chain_n05.json", 0.9_f64.powi(5));
+        check("test_domains/prob_chain_n05.json", 0.9_f64.powi(5), HeuristicType::HAdd);
     }
 
     // ── prob_method_select ────────────────────────────────────────────────────
@@ -52,12 +56,12 @@ mod tests {
 
     #[test]
     fn prob_method_select_k03() {
-        check("test_domains/prob_method_select_k03.json", 3.0 / 4.0);
+        check("test_domains/prob_method_select_k03.json", 3.0 / 4.0, HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_method_select_k05() {
-        check("test_domains/prob_method_select_k05.json", 5.0 / 6.0);
+        check("test_domains/prob_method_select_k05.json", 5.0 / 6.0, HeuristicType::HAdd);
     }
 
     // ── prob_retry ────────────────────────────────────────────────────────────
@@ -65,12 +69,12 @@ mod tests {
 
     #[test]
     fn prob_retry_k03() {
-        check("test_domains/prob_retry_k03.json", 1.0 - 0.5_f64.powi(3));
+        check("test_domains/prob_retry_k03.json", 1.0 - 0.5_f64.powi(3), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_retry_k05() {
-        check("test_domains/prob_retry_k05.json", 1.0 - 0.5_f64.powi(5));
+        check("test_domains/prob_retry_k05.json", 1.0 - 0.5_f64.powi(5), HeuristicType::HAdd);
     }
 
     // ── prob_sequential_retry ─────────────────────────────────────────────────
@@ -78,20 +82,17 @@ mod tests {
 
     #[test]
     fn prob_sequential_retry_n2_r3() {
-        check("test_domains/prob_sequential_retry_n02_r03.json",
-              (1.0 - 0.5_f64.powi(3)).powi(2));
+        check("test_domains/prob_sequential_retry_n02_r03.json", (1.0 - 0.5_f64.powi(3)).powi(2), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_sequential_retry_n3_r2() {
-        check("test_domains/prob_sequential_retry_n03_r02.json",
-              (1.0 - 0.5_f64.powi(2)).powi(3));
+        check("test_domains/prob_sequential_retry_n03_r02.json", (1.0 - 0.5_f64.powi(2)).powi(3), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_sequential_retry_n3_r3() {
-        check("test_domains/prob_sequential_retry_n03_r03.json",
-              (1.0 - 0.5_f64.powi(3)).powi(3));
+        check("test_domains/prob_sequential_retry_n03_r03.json", (1.0 - 0.5_f64.powi(3)).powi(3), HeuristicType::HAdd);
     }
 
     // ── prob_safe_vs_risky ────────────────────────────────────────────────────
@@ -101,26 +102,21 @@ mod tests {
 
     #[test]
     fn prob_safe_vs_risky_n3_r1() {
-        check("test_domains/prob_safe_vs_risky_n03_r01.json",
-              (1.0 - 0.15 * 0.4_f64.powi(0)).powi(3));  // 0.85^3
+        check("test_domains/prob_safe_vs_risky_n03_r01.json", (1.0 - 0.15 * 0.4_f64.powi(0)).powi(3), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_safe_vs_risky_n2_r2() {
-        check("test_domains/prob_safe_vs_risky_n02_r02.json",
-              (1.0 - 0.15 * 0.4_f64.powi(1)).powi(2));  // 0.94^2
+        check("test_domains/prob_safe_vs_risky_n02_r02.json", (1.0 - 0.15 * 0.4_f64.powi(1)).powi(2), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_safe_vs_risky_n3_r3() {
-        check("test_domains/prob_safe_vs_risky_n03_r03.json",
-              (1.0 - 0.15 * 0.4_f64.powi(2)).powi(3));  // ≈ 0.9297
+        check("test_domains/prob_safe_vs_risky_n03_r03.json", (1.0 - 0.15 * 0.4_f64.powi(2)).powi(3), HeuristicType::HAdd);
     }
 
     #[test]
     fn prob_blocksworld_5() {
-        check("test_domains/prob_blocksworld_5.json",
-              0.996);
+        check("test_domains/prob_blocksworld_5.json", 0.996, HeuristicType::HAdd);
     }
-
 }
