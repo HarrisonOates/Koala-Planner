@@ -565,6 +565,12 @@ fn run_internal(
                 &h_type,
                 mode,
             );
+            // ── Early deadlock detection (MinCost only) ──────────────────────
+            // If any Dead node is already reachable through the resolved reach,
+            // no extension of Out_C can fix it — prune immediately.
+            if mode == SearchMode::MinCost && !is_reach_proper(&new_reach_full) {
+                continue;
+            }
             let new_f = match mode {
                 SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_reach_full),
                 SearchMode::MinCost => {
