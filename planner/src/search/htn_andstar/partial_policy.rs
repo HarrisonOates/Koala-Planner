@@ -1,7 +1,36 @@
-use std::collections::HashSet;
-use std::cmp::Ordering;
-use std::rc::Rc;
 use crate::task_network::HTN;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
+
+// ── MemoKey types (shared with mod.rs) ────────────────────────────────────────
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+pub struct TnKey {
+    pub mappings: BTreeMap<u32, u32>,
+    pub orderings: Vec<(u32, u32)>,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+pub struct StateKey(pub Vec<u32>);
+
+pub type MemoKey = (TnKey, StateKey);
+
+pub fn make_key(tn: &HTN, state: &HashSet<u32>) -> MemoKey {
+    let mappings: BTreeMap<u32, u32> = tn.mappings.iter().map(|(&k, &v)| (k, v)).collect();
+    let mut orderings = tn.get_orderings();
+    orderings.sort();
+    orderings.dedup();
+    let mut sv: Vec<u32> = state.iter().copied().collect();
+    sv.sort();
+    (
+        TnKey {
+            mappings,
+            orderings,
+        },
+        StateKey(sv),
+    )
+}
 
 /// Secondary ordering applied when two partial policies have equal f-value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,26 +96,60 @@ pub struct PolicyLink {
 }
 
 /// One node in the AND* open list — a partial policy π.
+///
+/// Memory layout uses structural sharing to avoid cloning the full reach
+/// graph for every child state:
+///
+/// - `base_reach`: the parent's full reach, shared via `Rc` among siblings.
+///   For the root state this is an empty `Rc<Vec<_>>` (no parent).
+/// - `modification`: the single node that changed (Compound → Assigned) when
+///   we extended the parent.  `None` for the root.
+/// - `extension`: the newly discovered reach nodes beyond `base_reach.len()`.
+///
+/// When a state is *popped*, `reconstruct_reach` clones the base and applies
+/// the modification + extension in O(|base| + |extension|).  States that are
+/// never popped (pruned by the seen-set) pay zero clone cost.
+///
+/// The index map is also not stored (expensive keys); it is rebuilt cheaply
+/// from the reconstructed reach on each pop.
 pub struct PartialPolicyState {
-    /// Forward-reachable nodes from (init_tn, init_state) under π.
-    /// reach[0] is always the initial node.
-    pub reach: Vec<ReachNode>,
-    /// Indices into `reach` for unassigned compound nodes (Out_C(π)).
+    /// Parent's full reach nodes, shared with sibling states (Rc, O(1) to store).
+    pub base_reach: Rc<Vec<ReachNode>>,
+    /// The one node flipped from Compound to Assigned when the parent was
+    /// extended.  `None` for the root state.
+    pub modification: Option<(usize, ReachNode)>,
+    /// New reach nodes discovered beyond `base_reach.len()`.
+    pub extension: Vec<ReachNode>,
+    /// Indices (in the *reconstructed* reach) of unassigned compound nodes.
     pub out_c: Vec<usize>,
     /// Singly-linked list of assignments made so far.
     pub policy_tail: Option<Rc<PolicyLink>>,
     /// f(π) = V[0] from Bellman VI with out_c nodes pinned at prob_upper.
-    /// Equals the exact success probability when the policy is closed.
     pub f_value: f64,
     /// Number of compound-node assignments in policy_tail (i.e. |π|).
     pub policy_size: usize,
     /// Which secondary criterion to use when f-values tie.
     pub tiebreaker: TiebreakerKind,
+    /// Monotonic insertion counter for deterministic heap ordering (FIFO
+    /// among otherwise-equal policies).
+    pub insertion_order: u64,
 }
 
 impl PartialPolicyState {
     pub fn is_closed(&self) -> bool {
         self.out_c.is_empty()
+    }
+
+    /// Reconstruct the full `Vec<ReachNode>` for this state by cloning the
+    /// base, applying the modification, and appending the extension.
+    /// Only called when the state is *popped* from the open list.
+    pub fn reconstruct_reach(&self) -> Vec<ReachNode> {
+        let mut reach = (*self.base_reach).clone();
+        if let Some((idx, ref node)) = self.modification {
+            reach[idx] = node.clone();
+        }
+        reach.extend(self.extension.iter().cloned());
+        reach
     }
 
     /// Compute V[0] (value of the initial reach node) via pessimistic
@@ -107,12 +170,15 @@ impl PartialPolicyState {
         }
 
         // Initialise value vector.
-        let mut v: Vec<f64> = reach.iter().map(|node| match node.kind {
-            NodeKind::Goal     => 1.0,
-            NodeKind::Dead     => 0.0,
-            NodeKind::Compound => node.prob_upper, // pinned
-            _                  => 0.0,             // pessimistic init
-        }).collect();
+        let mut v: Vec<f64> = reach
+            .iter()
+            .map(|node| match node.kind {
+                NodeKind::Goal => 1.0,
+                NodeKind::Dead => 0.0,
+                NodeKind::Compound => node.prob_upper, // pinned
+                _ => 0.0,                              // pessimistic init
+            })
+            .collect();
 
         // Bellman VI — converges for both acyclic and cyclic graphs
         // when initialised pessimistically (lower fixed point = MaxProb).
@@ -125,14 +191,16 @@ impl PartialPolicyState {
                     NodeKind::Goal | NodeKind::Dead | NodeKind::Compound => continue,
                     _ => {}
                 }
-                let new_v: f64 = reach[i].successors.iter()
-                    .map(|&(j, p)| p * v[j])
-                    .sum();
+                let new_v: f64 = reach[i].successors.iter().map(|&(j, p)| p * v[j]).sum();
                 let diff = (new_v - v[i]).abs();
-                if diff > delta { delta = diff; }
+                if diff > delta {
+                    delta = diff;
+                }
                 v[i] = new_v;
             }
-            if delta < 1e-12 { break; }
+            if delta < 1e-12 {
+                break;
+            }
         }
 
         v[0]
@@ -156,26 +224,31 @@ impl PartialOrd for PartialPolicyState {
 impl Ord for PartialPolicyState {
     fn cmp(&self, other: &Self) -> Ordering {
         // Primary key: higher success-probability upper bound first.
-        let f_ord = self.f_value.partial_cmp(&other.f_value).unwrap_or(Ordering::Equal);
+        let f_ord = self
+            .f_value
+            .partial_cmp(&other.f_value)
+            .unwrap_or(Ordering::Equal);
         if f_ord != Ordering::Equal {
             return f_ord;
         }
         // Tiebreaker (configurable):
-        match self.tiebreaker {
+        let tb = match self.tiebreaker {
             // No secondary criterion.
             TiebreakerKind::NoTiebreak => Ordering::Equal,
             // Prefer more assignments — deeper DFS-like dive.
-            TiebreakerKind::PolicySize =>
-                self.policy_size.cmp(&other.policy_size),
+            TiebreakerKind::PolicySize => self.policy_size.cmp(&other.policy_size),
             // Prefer fewer unresolved compound nodes — closer to a closed policy.
             // Reversed because fewer is better and BinaryHeap is a max-heap.
-            TiebreakerKind::ClosureFirst =>
-                other.out_c.len().cmp(&self.out_c.len()),
+            TiebreakerKind::ClosureFirst => other.out_c.len().cmp(&self.out_c.len()),
             // More assignments first; break further ties by fewer unresolved.
-            TiebreakerKind::Combined =>
-                self.policy_size.cmp(&other.policy_size)
-                    .then_with(|| other.out_c.len().cmp(&self.out_c.len())),
-        }
+            TiebreakerKind::Combined => self
+                .policy_size
+                .cmp(&other.policy_size)
+                .then_with(|| other.out_c.len().cmp(&self.out_c.len())),
+        };
+        // Final tiebreaker: FIFO — earlier insertion (lower counter) gets
+        // higher priority in the max-heap.
+        tb.then_with(|| other.insertion_order.cmp(&self.insertion_order))
     }
 }
 
@@ -184,62 +257,76 @@ impl Ord for PartialPolicyState {
 /// Canonical descriptor of a single unassigned compound reach node.
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct CompoundSig {
-    pub tn_mappings:  Vec<(u32, u32)>, // sorted by renamed node id
+    pub tn_mappings: Vec<(u32, u32)>,  // sorted by renamed node id
     pub tn_orderings: Vec<(u32, u32)>, // sorted, deduped
-    pub state_facts:  Vec<u32>,        // sorted fact IDs
+    pub state_facts: Vec<u32>,         // sorted fact IDs
 }
 
 /// Full deduplication key for a PartialPolicyState.
-/// Two states with the same f_value and identical unresolved compound
-/// frontier are considered equivalent and the second is dropped.
+///
+/// Two states with the same policy_size, f_value, and identical unresolved
+/// compound frontier are considered equivalent and the second is dropped.
+/// Including `policy_size` is critical for recursive domains: the same
+/// compound frontier may appear at different recursion depths, producing
+/// different closed-policy probabilities (deeper = higher probability).
 #[derive(Hash, PartialEq, Eq)]
 pub struct ReachSig {
+    pub policy_size: usize,
     pub f_value_bits: u64,
-    pub compounds:    Vec<CompoundSig>, // sorted for canonical form
+    pub compounds: Vec<CompoundSig>, // sorted for canonical form
 }
 
-impl PartialPolicyState {
-    /// Produce a canonical renaming of TN node IDs (independent of
-    /// the arbitrary integer IDs assigned during grounding).
-    fn canonicalize_tn(tn: &HTN) -> (Vec<(u32, u32)>, Vec<(u32, u32)>) {
-        let mut old_nodes: Vec<u32> = tn.get_nodes().iter().copied().collect();
-        old_nodes.sort();
-        let renaming: std::collections::HashMap<u32, u32> = old_nodes
-            .iter()
-            .enumerate()
-            .map(|(new_id, &old_id)| (old_id, new_id as u32))
-            .collect();
+/// Produce a canonical renaming of TN node IDs (independent of
+/// the arbitrary integer IDs assigned during grounding).
+fn canonicalize_tn(tn: &HTN) -> (Vec<(u32, u32)>, Vec<(u32, u32)>) {
+    let mut old_nodes: Vec<u32> = tn.get_nodes().iter().copied().collect();
+    old_nodes.sort();
+    let renaming: std::collections::HashMap<u32, u32> = old_nodes
+        .iter()
+        .enumerate()
+        .map(|(new_id, &old_id)| (old_id, new_id as u32))
+        .collect();
 
-        let mut tn_mappings: Vec<(u32, u32)> = tn.mappings.iter()
-            .map(|(&old_node, &task_id)| (renaming[&old_node], task_id))
-            .collect();
-        tn_mappings.sort();
+    let mut tn_mappings: Vec<(u32, u32)> = tn
+        .mappings
+        .iter()
+        .map(|(&old_node, &task_id)| (renaming[&old_node], task_id))
+        .collect();
+    tn_mappings.sort();
 
-        let mut tn_orderings: Vec<(u32, u32)> = tn.get_orderings().into_iter()
-            .map(|(src, dst)| (renaming[&src], renaming[&dst]))
-            .collect();
-        tn_orderings.sort();
-        tn_orderings.dedup();
+    let mut tn_orderings: Vec<(u32, u32)> = tn
+        .get_orderings()
+        .into_iter()
+        .map(|(src, dst)| (renaming[&src], renaming[&dst]))
+        .collect();
+    tn_orderings.sort();
+    tn_orderings.dedup();
 
-        (tn_mappings, tn_orderings)
-    }
+    (tn_mappings, tn_orderings)
+}
 
-    /// Build a canonical signature of this partial policy for open-list
-    /// deduplication. Based on: f_value + the set of unresolved compound nodes.
-    pub fn reach_sig(&self) -> ReachSig {
-        let mut compounds: Vec<CompoundSig> = self.reach.iter()
-            .filter(|n| matches!(n.kind, NodeKind::Compound))
-            .map(|n| {
-                let (tn_mappings, tn_orderings) = Self::canonicalize_tn(n.tn.as_ref());
-                let mut state_facts: Vec<u32> = n.state.iter().copied().collect();
-                state_facts.sort();
-                CompoundSig { tn_mappings, tn_orderings, state_facts }
-            })
-            .collect();
-        compounds.sort();
-        ReachSig {
-            f_value_bits: self.f_value.to_bits(),
-            compounds,
-        }
+/// Build a canonical signature of the reach graph for open-list deduplication.
+/// Based on: policy_size + f_value + the set of unresolved compound nodes.
+/// Called with the reach and f_value computed during expansion (not stored per state).
+pub fn compute_reach_sig(reach: &[ReachNode], f_value: f64, policy_size: usize) -> ReachSig {
+    let mut compounds: Vec<CompoundSig> = reach
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::Compound))
+        .map(|n| {
+            let (tn_mappings, tn_orderings) = canonicalize_tn(n.tn.as_ref());
+            let mut state_facts: Vec<u32> = n.state.iter().copied().collect();
+            state_facts.sort();
+            CompoundSig {
+                tn_mappings,
+                tn_orderings,
+                state_facts,
+            }
+        })
+        .collect();
+    compounds.sort();
+    ReachSig {
+        policy_size,
+        f_value_bits: f_value.to_bits(),
+        compounds,
     }
 }

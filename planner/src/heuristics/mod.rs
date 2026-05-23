@@ -1,9 +1,13 @@
-mod structs;
 mod classical;
+mod structs;
 
-use crate::task_network::{HTN, Task, PrimitiveAction, CompoundTask, Applicability};
-pub use structs::TDG;
 use crate::domain_description::{ClassicalDomain, DomainTasks};
+use crate::task_network::{Applicability, CompoundTask, PrimitiveAction, Task, HTN};
+pub use structs::TDG;
 
-pub use classical::{h_ff, h_add, h_max, h_prob_max};
-
+pub use classical::{
+    h_add,
+    h_ff,
+    h_max,
+    h_prob_max,
+};

@@ -1,6 +1,5 @@
-pub enum HeuristicType{
+pub enum HeuristicType {
     HFF,
     HAdd,
     HMax,
-    HProb,
 }

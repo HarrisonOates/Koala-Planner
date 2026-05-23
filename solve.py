@@ -4,6 +4,12 @@ import subprocess
 import json
 import resource
 
+def make_mem_limiter(mem_limit_gb):
+    if mem_limit_gb is None:
+        return None
+    limit_bytes = int(mem_limit_gb * 1024 ** 3)
+    return lambda: resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+
 # Timeout in minutes
 def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output_path=None):
     path = os.getcwd()
@@ -37,7 +43,7 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output
     parsed = subprocess.run(
         [parser_path,
          domain_for_parser, os.path.abspath(problem)],
-         capture_output=True)
+         capture_output=True, preexec_fn=make_mem_limiter(mem_limit_gb))
     print(parsed.stderr.decode("utf-8"))
     with open(grounder_path + "parsed.htn", "w+") as f:
         f.write(parsed.stdout.decode("utf-8"))
@@ -51,7 +57,8 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output
         subprocess.run(
             [grounder_path + "pandaPIgrounder",
             grounder_path + "parsed.htn",
-            serilazer_path + "result.sas+"], capture_output=True
+            serilazer_path + "result.sas+"], capture_output=True,
+            preexec_fn=make_mem_limiter(mem_limit_gb)
         )
         os.remove(grounder_path + "parsed.htn")
     else:
@@ -65,7 +72,7 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output
         ]
         if prob_map_path and os.path.isfile(prob_map_path):
             serialize_cmd.append(prob_map_path)
-        serialized = subprocess.run(serialize_cmd, capture_output=True)
+        serialized = subprocess.run(serialize_cmd, capture_output=True, preexec_fn=make_mem_limiter(mem_limit_gb))
         print(serialized.stderr.decode("utf-8"))
         os.remove(serilazer_path + "result.sas+")
         if prob_map_path and os.path.isfile(prob_map_path):
@@ -134,7 +141,7 @@ if __name__ == "__main__":
         arg = args[i]
         if arg in ("--fixed", "--flexible", "--andstar"):
             mode_flag = [arg]
-        elif arg in ("--ff", "--add", "--max", "--prob"):
+        elif arg in ("--ff", "--add", "--max"):
             heuristic_flag = [arg]
         elif arg == "--threshold" and i + 1 < len(args):
             threshold_flag = ["--threshold", args[i + 1]]

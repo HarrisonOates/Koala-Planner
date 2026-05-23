@@ -1,5 +1,8 @@
 #![allow(unused)]
-use std::{collections::{HashSet, HashMap}, env};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+};
 
 extern crate bit_vec;
 
@@ -11,8 +14,8 @@ mod search;
 mod task_network;
 
 use crate::search::fixed_method::heuristic_factory;
-use crate::search::{HeuristicType, SearchResult};
 use crate::search::htn_andstar::TiebreakerKind;
+use crate::search::{HeuristicType, SearchResult};
 use domain_description::{read_json_domain, FONDProblem};
 use heuristics::{h_add, h_ff, h_max};
 use relaxation::RelaxedComposition;
@@ -32,7 +35,8 @@ fn main() {
     let mut problem = read_json_domain(&args[1]);
 
     // Parse --threshold argument
-    let rho: f64 = args.iter()
+    let rho: f64 = args
+        .iter()
         .position(|x| x == "--threshold")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
@@ -63,20 +67,16 @@ fn main() {
             "--add" => {
                 println!("Using Add heuristic");
                 HeuristicType::HAdd
-            },
+            }
             "--max" => {
                 println!("Using Max heuristic");
                 HeuristicType::HMax
-            },
+            }
             "--ff" => {
                 println!("Using FF heuristic");
                 HeuristicType::HFF
-            },
-            "--prob" => {
-                println!("Using Prob heuristic");
-                HeuristicType::HProb
-            },
-            _ => panic!("Unknown heuristic")
+            }
+            _ => panic!("Unknown heuristic"),
         },
         None => {
             panic!("Expected heuristic flag")
@@ -90,24 +90,24 @@ fn main() {
                     Some(flag) => match flag.as_str() {
                         "--add" => heuristic_factory::create_function_with_heuristic(h_add),
                         "--max" => heuristic_factory::create_function_with_heuristic(h_max),
-                        "--ff"  => heuristic_factory::create_function_with_heuristic(h_ff),
+                        "--ff" => heuristic_factory::create_function_with_heuristic(h_ff),
                         _ => panic!("Did not recognise flag {}", flag),
                     },
                     None => panic!("Expected heuristic flag"),
                 };
                 println!("Running fixed method solver");
                 fixed_method(&problem, heuristic_fixed)
-            },
+            }
             "--flexible" => {
                 println!("Running AO* flexible solver");
                 ao_star(&problem, heuristic_flexible)
-            },
+            }
             "--andstar" => {
                 println!("Running HTN-AND* solver");
                 println!("Tiebreaker: {:?}", tiebreaker);
                 htn_andstar(&problem, heuristic_flexible, tiebreaker)
-            },
-            _ => panic!("Did not recognise flag {}", flag)
+            }
+            _ => panic!("Did not recognise flag {}", flag),
         },
         None => ao_star(&problem, heuristic_flexible),
     }
