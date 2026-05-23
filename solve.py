@@ -11,7 +11,7 @@ def make_mem_limiter(mem_limit_gb):
     return lambda: resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
 
 # Timeout in minutes
-def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output_path=None):
+def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output_path=None, keep_json=False):
     path = os.getcwd()
     parser_path = path + "/parser/pandaPIparser"
     grounder_path = path + "/grounder/pandaPIgrounder/"
@@ -115,10 +115,11 @@ def solve(domain, problem, optional_flags, timeout=30, mem_limit_gb=None, output
                     f.write(result.stdout.decode("utf-8"))
         except subprocess.TimeoutExpired:
             print(f'\t\ttimeout for {problem}')
-        try:
-            os.remove(planner_path + "result.json")
-        except FileNotFoundError:
-            pass
+        if not keep_json:
+            try:
+                os.remove(planner_path + "result.json")
+            except FileNotFoundError:
+                pass
     else:
         print(f"failed to serialize {problem}", file=sys.stderr)
 
@@ -135,13 +136,14 @@ if __name__ == "__main__":
     tiebreak_flag = []
     mem_limit_gb = None
     output_path = None
+    keep_json = False
 
     i = 0
     while i < len(args):
         arg = args[i]
         if arg in ("--fixed", "--flexible", "--andstar"):
             mode_flag = [arg]
-        elif arg in ("--ff", "--add", "--max"):
+        elif arg in ("--ff", "--add", "--max", "--prob"):
             heuristic_flag = [arg]
         elif arg == "--threshold" and i + 1 < len(args):
             threshold_flag = ["--threshold", args[i + 1]]
@@ -155,6 +157,8 @@ if __name__ == "__main__":
         elif arg == "--output" and i + 1 < len(args):
             output_path = args[i + 1]
             i += 1
+        elif arg == "--keep-json":
+            keep_json = True
         i += 1
 
     # Default heuristic to --ff if not specified
@@ -163,4 +167,4 @@ if __name__ == "__main__":
         heuristic_flag = ["--ff"]
 
     optional_flags = mode_flag + heuristic_flag + threshold_flag + tiebreak_flag
-    solve(domain, problem, optional_flags, mem_limit_gb=mem_limit_gb, output_path=output_path)
+    solve(domain, problem, optional_flags, mem_limit_gb=mem_limit_gb, output_path=output_path, keep_json=keep_json)

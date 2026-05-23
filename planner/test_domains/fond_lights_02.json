@@ -1,0 +1,538 @@
+{
+    "state_features": [
+        "-broken[light1]",
+        "-broken[light2]",
+        "+on[light1]",
+        "+on[light2]",
+        "+off[light1]",
+        "+off[light2]"
+    ],
+    "mutex_groups": [
+        "0 0 -broken[light1]",
+        "1 1 -broken[light2]",
+        "2 2 +on[light1]",
+        "3 3 +on[light2]",
+        "4 4 +off[light1]",
+        "5 5 +off[light2]"
+    ],
+    "further_strict_mutex_groups": [],
+    "further_non_strict_mutex_groups": [],
+    "known_invariants": [],
+    "actions": {
+        "verify[]": {
+            "cost": 1,
+            "precond": [
+                "-broken[light2]",
+                "-broken[light1]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "change_bulb[light2]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "-broken[light2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "dont_change_bulb[light2]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "change_bulb[light1]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "-broken[light1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "dont_change_bulb[light1]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "turn_off[light2]": {
+            "cost": 1,
+            "precond": [
+                "+on[light2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+off[light2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+on[light2]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "turn_on[light2]": {
+            "cost": 1,
+            "precond": [
+                "+off[light2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[light2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+off[light2]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "turn_off[light1]": {
+            "cost": 1,
+            "precond": [
+                "+on[light1]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+off[light1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+on[light1]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "turn_on[light1]": {
+            "cost": 1,
+            "precond": [
+                "+off[light1]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[light1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+off[light1]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "decide_condition[light2]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "-broken[light2]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "observe[light2]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[light2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+off[light2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "decide_condition[light1]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "-broken[light1]"
+                        ],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "observe[light1]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[light1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+off[light1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    "initial_state": [
+        "-broken[light2]",
+        "-broken[light1]"
+    ],
+    "goal": [
+        "-1"
+    ],
+    "initial_abstract_task": "__top[]",
+    "methods": {
+        "<<__top_method;inspect_light[light2];m_inspect_light_0;1;0,-1,-2,-3,-4,2,3,4>;inspect_light[light1];m_inspect_light_0;0;-1,-2,-3,-4,1,2,3,4,5,6,7>_0": {
+            "task": "__top[]",
+            "subtasks": [
+                "observe[light1]",
+                "turn_on[light1]",
+                "turn_off[light1]",
+                "decide_condition[light1]",
+                "observe[light2]",
+                "turn_on[light2]",
+                "turn_off[light2]",
+                "decide_condition[light2]",
+                "maybe_change_bulb[light1]",
+                "maybe_change_bulb[light2]",
+                "verify[]"
+            ],
+            "orderings": [
+                [
+                    9,
+                    10
+                ],
+                [
+                    8,
+                    9
+                ],
+                [
+                    7,
+                    8
+                ],
+                [
+                    3,
+                    7
+                ],
+                [
+                    3,
+                    6
+                ],
+                [
+                    3,
+                    5
+                ],
+                [
+                    3,
+                    4
+                ],
+                [
+                    6,
+                    8
+                ],
+                [
+                    6,
+                    7
+                ],
+                [
+                    5,
+                    8
+                ],
+                [
+                    5,
+                    7
+                ],
+                [
+                    4,
+                    8
+                ],
+                [
+                    4,
+                    6
+                ],
+                [
+                    4,
+                    5
+                ],
+                [
+                    2,
+                    7
+                ],
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    6
+                ],
+                [
+                    2,
+                    5
+                ],
+                [
+                    2,
+                    4
+                ],
+                [
+                    1,
+                    7
+                ],
+                [
+                    1,
+                    3
+                ],
+                [
+                    1,
+                    6
+                ],
+                [
+                    1,
+                    5
+                ],
+                [
+                    1,
+                    4
+                ],
+                [
+                    0,
+                    7
+                ],
+                [
+                    0,
+                    6
+                ],
+                [
+                    0,
+                    5
+                ],
+                [
+                    0,
+                    4
+                ],
+                [
+                    0,
+                    2
+                ],
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_maybe_change_bulb_0_1": {
+            "task": "maybe_change_bulb[light2]",
+            "subtasks": [
+                "change_bulb[light2]"
+            ],
+            "orderings": []
+        },
+        "m_maybe_change_bulb_1_2": {
+            "task": "maybe_change_bulb[light2]",
+            "subtasks": [
+                "dont_change_bulb[light2]"
+            ],
+            "orderings": []
+        },
+        "m_maybe_change_bulb_0_3": {
+            "task": "maybe_change_bulb[light1]",
+            "subtasks": [
+                "change_bulb[light1]"
+            ],
+            "orderings": []
+        },
+        "m_maybe_change_bulb_1_4": {
+            "task": "maybe_change_bulb[light1]",
+            "subtasks": [
+                "dont_change_bulb[light1]"
+            ],
+            "orderings": []
+        }
+    },
+    "tasks": [
+        "__top[]",
+        "maybe_change_bulb[light2]",
+        "maybe_change_bulb[light1]"
+    ]
+}
