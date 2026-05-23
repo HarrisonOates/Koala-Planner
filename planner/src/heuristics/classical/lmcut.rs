@@ -2,15 +2,70 @@ use std::collections::{HashSet, VecDeque};
 
 use crate::domain_description::ClassicalDomain;
 
+/// A landmark cut: the set of action indices in the cut, and the cost deducted.
+pub type LandmarkCuts = Vec<(Vec<usize>, u32)>;
+
+/// Standard LM-cut heuristic value (landmarks discarded after computation).
 pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
     if goal.iter().all(|g| state.contains(g)) {
         return 0.0;
     }
+    h_lmcut_core(domain, state, goal, &[] as &[(Vec<usize>, u32)]).0
+}
 
+/// LM-cut returning (value, discovered landmark cuts) for storage and incremental reuse.
+pub fn h_lmcut_full(
+    domain: &ClassicalDomain,
+    state: &HashSet<u32>,
+    goal: &HashSet<u32>,
+) -> (f32, LandmarkCuts) {
+    if goal.iter().all(|g| state.contains(g)) {
+        return (0.0, vec![]);
+    }
+    h_lmcut_core(domain, state, goal, &[] as &[(Vec<usize>, u32)])
+}
+
+/// Incremental LM-cut: warm-start from `parent_cuts`, dropping cuts that contain
+/// `exclude_action` (the classical action corresponding to the applied method).
+///
+/// Admissibility: any carried cut L with `exclude_action ∉ L` is still a disjunctive
+/// action landmark for the child node (Pommerening & Helmert 2013, §"Incremental
+/// Computation"), provided the child's state is at most as hard as the parent's.
+/// In our HTN encoding this holds when no primitive actions were executed between
+/// the parent compound node and the child (the no-primitives path).
+pub fn h_lmcut_incremental(
+    domain: &ClassicalDomain,
+    state: &HashSet<u32>,
+    goal: &HashSet<u32>,
+    parent_cuts: &[(Vec<usize>, u32)],
+    exclude_action: usize,
+) -> (f32, LandmarkCuts) {
+    if goal.iter().all(|g| state.contains(g)) {
+        return (0.0, vec![]);
+    }
+    let carried: LandmarkCuts = parent_cuts
+        .iter()
+        .filter(|(actions, _)| !actions.contains(&exclude_action))
+        .cloned()
+        .collect();
+    h_lmcut_core(domain, state, goal, &carried)
+}
+
+/// Core LM-cut computation.
+///
+/// `carried_cuts` are landmark cuts already paid for (from a parent node).
+/// Initial action costs are deflated by their accumulated deductions, and
+/// `h_total` starts at the sum of carried cut costs.  All new cuts found are
+/// appended to `carried_cuts` and returned alongside the total value.
+fn h_lmcut_core(
+    domain: &ClassicalDomain,
+    state: &HashSet<u32>,
+    goal: &HashSet<u32>,
+    carried_cuts: &[(Vec<usize>, u32)],
+) -> (f32, LandmarkCuts) {
     let n_facts = domain.facts.count() as usize;
     let n_actions = domain.actions.len();
 
-    // achievers[f] = indices of actions whose first add-effect set contains f
     let mut achievers: Vec<Vec<usize>> = vec![Vec::new(); n_facts];
     for (i, action) in domain.actions.iter().enumerate() {
         if action.add_effects.is_empty() {
@@ -24,9 +79,19 @@ pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u3
         }
     }
 
-    // Unit costs — consistent with h_add / h_max / h_ff conventions
+    // Recreate costs from carried cuts: costs[a] = 1 - Σ{c : a ∈ L, (L,c) ∈ carried}
     let mut costs: Vec<u32> = vec![1; n_actions];
     let mut h_total: u32 = 0;
+    for (cut_actions, cut_cost) in carried_cuts {
+        h_total += cut_cost;
+        for &a in cut_actions {
+            if a < n_actions {
+                costs[a] = costs[a].saturating_sub(*cut_cost);
+            }
+        }
+    }
+
+    let mut all_cuts: LandmarkCuts = carried_cuts.to_vec();
 
     loop {
         // === 1. h_max fixed-point propagation ===
@@ -68,19 +133,13 @@ pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u3
             if acc == u32::MAX || gv == u32::MAX { u32::MAX } else { acc.max(gv) }
         });
         if goal_hmax == u32::MAX {
-            return f32::INFINITY;
+            return (f32::INFINITY, all_cuts);
         }
         if goal_hmax == 0 {
-            return h_total as f32;
+            return (h_total as f32, all_cuts);
         }
 
         // === 2. Build goal zone Z via backward BFS ===
-        //
-        // Z contains facts that must be "newly achieved" by the cut.
-        // Seed from goal facts with hmax > 0, then follow best-achiever edges
-        // backward: for each best-achiever a of f (costs[a]+hmax(a)=hmax(f)),
-        //   if hmax(a) > 0 add the peak preconditions { p | hmax(p) = hmax(a) }.
-        //   if hmax(a) = 0 the action is a cut candidate (don't extend Z).
         let mut z_zone = vec![false; n_facts];
         let mut queue: VecDeque<u32> = VecDeque::new();
         for &g in goal {
@@ -103,10 +162,9 @@ pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u3
                     continue;
                 }
                 if costs[idx].saturating_add(act_hmax) != f_hmax {
-                    continue; // not a best achiever of f
+                    continue;
                 }
                 if act_hmax > 0 {
-                    // Extend Z through peak preconditions
                     for &p in &action.pre_cond {
                         let pi = p as usize;
                         if pi < n_facts && hmax[pi] == act_hmax && !z_zone[pi] {
@@ -115,11 +173,10 @@ pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u3
                         }
                     }
                 }
-                // act_hmax == 0 → action is a cut candidate; don't extend Z
             }
         }
 
-        // === 3. Find cut: actions with hmax = 0, cost > 0, achieving some Z-fact ===
+        // === 3. Find cut: hmax=0, cost>0, achieves a Z-fact ===
         let mut cut: Vec<usize> = Vec::new();
         let mut cut_cost = u32::MAX;
         for (idx, action) in domain.actions.iter().enumerate() {
@@ -146,12 +203,13 @@ pub fn h_lmcut(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u3
         }
 
         h_total += cut_cost;
+        all_cuts.push((cut.clone(), cut_cost));
         for idx in cut {
             costs[idx] -= cut_cost;
         }
     }
 
-    h_total as f32
+    (h_total as f32, all_cuts)
 }
 
 #[cfg(test)]
@@ -161,10 +219,6 @@ mod tests {
     use crate::task_network::PrimitiveAction;
 
     fn chain_domain() -> ClassicalDomain {
-        // p1: pre={0} add={1}
-        // p2: pre={1} add={2}
-        // p3: pre={1} add={3}
-        // p4: pre={1,2,3} add={4}
         let facts =
             Facts::new(["0", "1", "2", "3", "4"].iter().map(|s| s.to_string()).collect());
         let mk = |pre: HashSet<u32>, add: HashSet<u32>| -> PrimitiveAction {
@@ -195,17 +249,12 @@ mod tests {
 
     #[test]
     fn single_step() {
-        // Goal {1}: only p1 needed — one cut {p1}, h = 1
         let d = chain_domain();
         assert_eq!(h_lmcut(&d, &HashSet::from([0u32]), &HashSet::from([1u32])), 1.0);
     }
 
     #[test]
     fn four_action_chain_gives_three() {
-        // iter1: cut={p1}       h=1  (p1 reduces to cost 0)
-        // iter2: cut={p2,p3}    h=2  (both reduce to cost 0)
-        // iter3: cut={p4}       h=3  (p4 reduces to cost 0)
-        // iter4: goal_hmax=0  → return 3
         let d = chain_domain();
         assert_eq!(h_lmcut(&d, &HashSet::from([0u32]), &HashSet::from([4u32])), 3.0);
     }
@@ -216,7 +265,38 @@ mod tests {
         let d = chain_domain();
         let s = HashSet::from([0u32]);
         let g = HashSet::from([4u32]);
-        // h_add overcounts; h_lmcut is admissible ⇒ h_lmcut ≤ h_add
         assert!(h_lmcut(&d, &s, &g) <= h_add(&d, &s, &g));
+    }
+
+    #[test]
+    fn full_returns_same_value_as_standard() {
+        let d = chain_domain();
+        let s = HashSet::from([0u32]);
+        let g = HashSet::from([4u32]);
+        let (val, cuts) = h_lmcut_full(&d, &s, &g);
+        assert_eq!(val, 3.0);
+        assert_eq!(cuts.len(), 3); // three landmark cuts found
+    }
+
+    #[test]
+    fn incremental_with_no_carried_matches_full() {
+        let d = chain_domain();
+        let s = HashSet::from([0u32]);
+        let g = HashSet::from([4u32]);
+        let (v_full, _) = h_lmcut_full(&d, &s, &g);
+        // exclude_action = 99 (nonexistent) → no filtering → should equal full
+        let (v_inc, _) = h_lmcut_incremental(&d, &s, &g, &[] as &[(Vec<usize>, u32)], 99);
+        assert_eq!(v_full, v_inc);
+    }
+
+    #[test]
+    fn incremental_with_carried_cuts_admissible() {
+        let d = chain_domain();
+        let s = HashSet::from([0u32]);
+        let g = HashSet::from([4u32]);
+        let (v_full, cuts) = h_lmcut_full(&d, &s, &g);
+        // Carry all cuts with a non-existent exclude_action → should reproduce full value
+        let (v_inc, _) = h_lmcut_incremental(&d, &s, &g, &cuts, 99);
+        assert_eq!(v_full, v_inc);
     }
 }

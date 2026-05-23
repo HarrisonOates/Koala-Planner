@@ -25,18 +25,20 @@ fn plan_length(domain: &ClassicalDomain, graphplan: GraphPlan, goal_state: &Hash
     for i in (1..=depth).rev() {
         let i = i as u32;
         let Some(goals_at_layer) = g.get(&i) else { continue };
-        let open_goals: Vec<u32> = goals_at_layer
+        let mut open_goals: Vec<u32> = goals_at_layer
             .difference(&marks[i as usize])
             .cloned()
             .collect();
+        open_goals.sort_unstable(); // deterministic order: eliminates HashSet iteration variance
 
         for open_goal in &open_goals {
             // Direct lookup via effect_to_actions: find the cheapest action at layer i-1
             // that produces open_goal, without scanning the whole layer.
+            // Tiebreak by action index for determinism when action costs are equal.
             let min_action_idx = graphplan.effect_to_actions[*open_goal as usize]
                 .iter()
                 .filter(|&&a| graphplan.action_layer[a] == i - 1)
-                .min_by_key(|&&a| domain.actions[a].cost)
+                .min_by_key(|&&a| (domain.actions[a].cost, a))
                 .copied()
                 .unwrap();
             let min_action = &domain.actions[min_action_idx];
