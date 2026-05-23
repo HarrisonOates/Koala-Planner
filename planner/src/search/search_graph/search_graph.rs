@@ -178,7 +178,7 @@ impl SearchGraph {
                 let visited_before = self.visited(expansion.tn.as_ref(), state.as_ref());
                 match visited_before {
                     Some(x) => {
-                        self.ids.get(&x).unwrap().borrow_mut().add_parent(x);
+                        self.ids.get(&x).unwrap().borrow_mut().add_parent(id);
                         hyperarc.children.insert(x);
                         hyperarc.outcome_probs.insert(x, outcome_prob);
                     }
@@ -440,7 +440,6 @@ mod tests {
         assert_eq!([4, 6].contains(&tip_node), true);
     }
 
-    // TODO: Sometimes panic by attempting to add parent to root
     #[test]
     pub fn expansion_test() {
         let mut tree = generate_tree();

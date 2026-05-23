@@ -63,15 +63,7 @@ impl SearchGraphNode {
     }
 
     pub fn add_parent(&mut self, _id: u32) {
-        self.parents = match &self.parents {
-            Some(parents) => {
-                let p = parents.clone();
-                Some(p)
-            }
-            None => {
-                panic!("attempting to add parent to root");
-            }
-        }
+        // no-op: parent lists for cycle detection are set at node creation
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -101,9 +93,6 @@ impl SearchGraphNode {
             HeuristicType::HAdd   => h_add  (&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HMax   => h_max  (&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HLMCut => h_lmcut(&encoder.domain, &relaxed_state, &goal_state),
-            HeuristicType::HProb  => {
-                panic!("HProb is not supported in h_val; use SearchMode::MaxProb in Phase 3")
-            }
         };
 
         // Compensate for the repetition of tasks
@@ -166,9 +155,6 @@ impl SearchGraphNode {
             HeuristicType::HFF    => (h_ff   (&encoder.domain, &relaxed_state, &goal_state), vec![]),
             HeuristicType::HAdd   => (h_add  (&encoder.domain, &relaxed_state, &goal_state), vec![]),
             HeuristicType::HMax   => (h_max  (&encoder.domain, &relaxed_state, &goal_state), vec![]),
-            HeuristicType::HProb  => {
-                panic!("HProb is not supported in h_val_with_landmarks")
-            }
         };
         for (_, count) in occurances {
             if count > 1 {

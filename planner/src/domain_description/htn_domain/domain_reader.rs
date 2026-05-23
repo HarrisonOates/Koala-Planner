@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use serde::{Deserialize, Serialize};
 
 use super::FONDProblem;
 
@@ -20,7 +20,7 @@ struct RawDomain {
     goal: Vec<String>,
     initial_abstract_task: String,
     methods: HashMap<String, RawMethod>,
-    tasks: Vec<String>
+    tasks: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -35,7 +35,7 @@ struct RawAction {
 #[derive(Debug, Deserialize, Serialize)]
 struct RawEffect {
     add_eff: HashMap<String, Vec<String>>,
-    del_eff: HashMap<String, Vec<String>>
+    del_eff: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -59,13 +59,16 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
                 vec![1.0 / n as f64; n]
             }
         };
-        let effects: Vec <(Vec<String>, Vec<String>)> = body.effects
-                    .into_iter()
-                    .map(|x|
-                        (x.add_eff.get("unconditional").unwrap().clone(),
-                        x.del_eff.get("unconditional").unwrap().clone())
-                    )
-                    .collect();
+        let effects: Vec<(Vec<String>, Vec<String>)> = body
+            .effects
+            .into_iter()
+            .map(|x| {
+                (
+                    x.add_eff.get("unconditional").unwrap().clone(),
+                    x.del_eff.get("unconditional").unwrap().clone(),
+                )
+            })
+            .collect();
         let processed = (name, body.precond, effects, probabilities);
         actions.push(processed);
     }
@@ -81,34 +84,38 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
         methods,
         domain.tasks,
         domain.initial_state,
-        domain.initial_abstract_task
+        domain.initial_abstract_task,
     );
     problem
 }
 
-
 #[cfg(test)]
 mod test {
-    use crate::task_network::{Task, CompoundTask};
+    use crate::task_network::{CompoundTask, Task};
 
     use super::*;
 
     #[test]
     pub fn correct_count_test() {
+        // Fixture: Rover pfile02 (1 rover, 4 waypoints, 1 camera, 1 objective)
         let domain = read_json_domain("src/domain_description/htn_domain/test_case.json");
-        assert_eq!(domain.facts.count(), 21);
+        assert_eq!(domain.facts.count(), 20);
         let facts = [
-            "+at_soil_sample[waypoint0]", "+at_rock_sample[waypoint0]",
-            "+at[rover0,waypoint0]", "+empty[rover0store]",
-            "-at[rover0,waypoint1]", "-at[rover0,waypoint2]",
-            "-at[rover0,waypoint3]", "-visited[waypoint0]",
-            "-visited[waypoint1]", "-visited[waypoint2]",
-            "-visited[waypoint3]", "-empty[rover0store]",
-            "+full[rover0store]", "+have_soil_analysis[rover0,waypoint0]",
-            "+have_rock_analysis[rover0,waypoint0]","-at[rover0,waypoint0]",
-            "+at[rover0,waypoint1]", "+at[rover0,waypoint2]",
-            "+at[rover0,waypoint3]", "+calibrated[camera0,rover0]",
-            "+have_image[rover0,objective1,low_res]"
+            "+at[rover0,waypoint0]",
+            "+at[rover0,waypoint1]",
+            "+at[rover0,waypoint2]",
+            "+at[rover0,waypoint3]",
+            "+at_rock_sample[waypoint0]",
+            "+calibrated[camera0,rover0]",
+            "+empty[rover0store]",
+            "+full[rover0store]",
+            "+have_image[rover0,objective1,low_res]",
+            "+have_rock_analysis[rover0,waypoint0]",
+            "-at[rover0,waypoint0]",
+            "-visited[waypoint0]",
+            "-visited[waypoint1]",
+            "-visited[waypoint2]",
+            "-visited[waypoint3]",
         ];
         for fact in facts.iter() {
             domain.facts.get_id(fact);
@@ -119,14 +126,16 @@ mod test {
         let mut method_counter = 0;
         for task in all_tasks.iter() {
             match &*task.borrow() {
-                Task::Compound(CompoundTask {name: _, methods}) => {
+                Task::Compound(CompoundTask { name: _, methods }) => {
                     method_counter += methods.len()
-                },
-                Task::Primitive(_) => {prim_counter += 1;}
+                }
+                Task::Primitive(_) => {
+                    prim_counter += 1;
+                }
             };
         }
-        assert_eq!(prim_counter, 46);
-        assert_eq!(method_counter, 46);
-        assert_eq!(domain.initial_state.len(), 11);
+        assert_eq!(prim_counter, 45);
+        assert_eq!(method_counter, 48);
+        assert_eq!(domain.initial_state.len(), 10);
     }
 }

@@ -31,3 +31,6 @@ pub fn create_function_with_heuristic(h_input: ClassicalHeuristic) -> HeuristicF
     })
 }
 
+pub fn create_prob_heuristic() -> HeuristicFn {
+    Box::new(|_, _, _, _| 0.0)
+}

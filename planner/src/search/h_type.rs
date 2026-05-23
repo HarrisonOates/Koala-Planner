@@ -5,7 +5,6 @@ pub enum HeuristicType {
     HFF,
     HAdd,
     HMax,
-    HProb,
     HLMCut,
 }
 
@@ -16,9 +15,6 @@ impl HeuristicType {
             HeuristicType::HAdd   => h_add,
             HeuristicType::HMax   => h_max,
             HeuristicType::HLMCut => h_lmcut,
-            HeuristicType::HProb  => {
-                panic!("--prob heuristic is not supported with --fixed mode")
-            }
         }
     }
 }

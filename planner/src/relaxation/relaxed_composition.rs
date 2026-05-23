@@ -1,16 +1,13 @@
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use super::TDG;
-use crate::domain_description::{ClassicalDomain, DomainTasks, Facts};
+use crate::domain_description::{ClassicalDomain, Facts};
 use crate::task_network::{PrimitiveAction, Task};
 use crate::domain_description::FONDProblem;
 use regex::Regex;
 
 #[derive(Debug)]
 pub struct RelaxedComposition {
-    tdg: TDG,
-    htn_tasks: Rc<DomainTasks>,
     pub domain: ClassicalDomain,
     task_reachable_facts: Vec<Vec<u32>>,
     task_goal_facts: Vec<u32>,
@@ -73,8 +70,6 @@ impl RelaxedComposition {
 
         RelaxedComposition {
             domain: classic_domain,
-            htn_tasks: domain.tasks.clone(),
-            tdg,
             task_reachable_facts,
             task_goal_facts,
         }
@@ -159,6 +154,7 @@ mod tests {
     use crate::domain_description::DomainTasks;
     use std::cell::RefCell;
     use std::collections::{BTreeSet, HashMap};
+    use std::rc::Rc;
     fn generate_problem() -> FONDProblem {
         let p1 = Task::Primitive(PrimitiveAction::new(
             "p1".to_string(),
