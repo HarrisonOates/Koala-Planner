@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::collections::{HashMap, HashSet};
 
 use crate::domain_description::ClassicalDomain;
@@ -32,6 +31,3 @@ pub fn create_function_with_heuristic(h_input: ClassicalHeuristic) -> HeuristicF
     })
 }
 
-pub fn zero_heuristic() -> HeuristicFn {
-    Box::new(move |_, _, _, _| 0.0)
-}

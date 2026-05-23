@@ -13,7 +13,6 @@ use crate::search::fixed_method::heuristic_factory;
 use crate::search::htn_andstar::TiebreakerKind;
 use crate::search::{HeuristicType, SearchResult};
 use domain_description::{read_json_domain, FONDProblem};
-use heuristics::{h_add, h_ff, h_max};
 use search::{
     astar::AStarResult,
     goal_checks::is_goal_strong_od,
@@ -41,69 +40,51 @@ fn main() {
     }
 
     // Parse --tiebreak argument (AND* only)
-    let tiebreaker = args.iter()
+    let tiebreaker = args
+        .iter()
         .position(|x| x == "--tiebreak")
         .and_then(|i| args.get(i + 1))
         .map(|v| match v.as_str() {
             "policy-size" => TiebreakerKind::PolicySize,
-            "closure"     => TiebreakerKind::ClosureFirst,
-            "combined"    => TiebreakerKind::Combined,
-            other => panic!("Unknown tiebreak '{}': use policy-size | closure | combined", other),
+            "closure" => TiebreakerKind::ClosureFirst,
+            "combined" => TiebreakerKind::Combined,
+            other => panic!(
+                "Unknown tiebreak '{}': use policy-size | closure | combined",
+                other
+            ),
         })
         .unwrap_or(TiebreakerKind::NoTiebreak);
 
-    // TODO: Refactor flexible method and fixed method to accept
-    // heuristic input of the same type, so we only need one of the
-    // following two match expressions
-
-    let heuristic_flexible = match args.get(3) {
-        Some(flag) => match flag.as_str() {
-            "--add" => {
-                println!("Using Add heuristic");
-                HeuristicType::HAdd
-            }
-            "--max" => {
-                println!("Using Max heuristic");
-                HeuristicType::HMax
-            }
-            "--ff" => {
-                println!("Using FF heuristic");
-                HeuristicType::HFF
-            }
-            _ => panic!("Unknown heuristic"),
-        },
-        None => {
-            panic!("Expected heuristic flag")
-        }
-    };
+    // Shared heuristic parsing across all solver modes
+    let h_type: HeuristicType = args
+        .iter()
+        .find_map(|a| match a.as_str() {
+            "--add" => Some(HeuristicType::HAdd),
+            "--max" => Some(HeuristicType::HMax),
+            "--ff" => Some(HeuristicType::HFF),
+            "--prob" => Some(HeuristicType::HProb),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --prob"));
 
     match args.get(2) {
         Some(flag) => match flag.as_str() {
             "--fixed" => {
-                let heuristic_fixed = match args.get(3) {
-                    Some(flag) => match flag.as_str() {
-                        "--add" => heuristic_factory::create_function_with_heuristic(h_add),
-                        "--max" => heuristic_factory::create_function_with_heuristic(h_max),
-                        "--ff" => heuristic_factory::create_function_with_heuristic(h_ff),
-                        _ => panic!("Did not recognise flag {}", flag),
-                    },
-                    None => panic!("Expected heuristic flag"),
-                };
                 println!("Running fixed method solver");
-                fixed_method(&problem, heuristic_fixed)
+                fixed_method(&problem, heuristic_factory::create_function_with_heuristic(h_type.as_classical_fn()))
             }
             "--flexible" => {
                 println!("Running AO* flexible solver");
-                ao_star(&problem, heuristic_flexible)
+                ao_star(&problem, h_type)
             }
             "--andstar" => {
                 println!("Running HTN-AND* solver");
                 println!("Tiebreaker: {:?}", tiebreaker);
-                htn_andstar(&problem, heuristic_flexible, tiebreaker)
+                htn_andstar(&problem, h_type, tiebreaker)
             }
             _ => panic!("Did not recognise flag {}", flag),
         },
-        None => ao_star(&problem, heuristic_flexible),
+        None => ao_star(&problem, h_type),
     }
 }
 

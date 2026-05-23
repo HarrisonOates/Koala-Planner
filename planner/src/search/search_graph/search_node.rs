@@ -100,6 +100,9 @@ impl SearchGraphNode {
             HeuristicType::HFF => h_ff(&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HAdd => h_add(&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HMax => h_max(&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HProb => {
+                panic!("HProb is not supported in h_val; use SearchMode::MaxProb in Phase 3")
+            }
         };
 
         // Compensate for the repetition of tasks
