@@ -347,15 +347,82 @@ fn compute_reach_incremental(
     (reach, index_map, out_c)
 }
 
-// ── Assignment reconstruction ──────────────────────────────────────────────
+// ── MinCost helpers ─────────────────────────────────────────────────────────
 
-/// Walk the PolicyLink chain and reconstruct the assignments as a HashMap.
+/// Admissible lower bound on total plan assignments for MinCost AND*.
+/// f(π) = −(|π| + max{ cost_lower[c] : c ∈ Out_C(π) })
+/// Returns NEG_INFINITY when any frontier compound node is infeasible.
+fn fond_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64 {
+    if out_c.is_empty() {
+        return -(policy_size as f64);
+    }
+    let h_max = out_c
+        .iter()
+        .map(|&i| reach[i].cost_lower)
+        .fold(0.0_f64, |acc, c| {
+            if c == f64::INFINITY {
+                f64::INFINITY
+            } else {
+                acc.max(c)
+            }
+        });
+    if h_max == f64::INFINITY {
+        f64::NEG_INFINITY // infeasible frontier — prune
+    } else {
+        -(policy_size as f64 + h_max)
+    }
+}
+
+/// Returns true iff no Dead node is reachable from reach[0].
+/// A closed FOND policy with a reachable Dead node is not a valid strong plan.
+fn is_reach_proper(reach: &[ReachNode]) -> bool {
+    let mut visited = vec![false; reach.len()];
+    let mut stack = vec![0usize];
+    while let Some(idx) = stack.pop() {
+        if visited[idx] {
+            continue;
+        }
+        visited[idx] = true;
+        if matches!(reach[idx].kind, NodeKind::Dead) {
+            return false;
+        }
+        for &(succ, _) in &reach[idx].successors {
+            if !visited[succ] {
+                stack.push(succ);
+            }
+        }
+    }
+    true
+}
+
 // ── Algorithm 2 — HTN-AND* ─────────────────────────────────────────────────
 
+/// Max-probability AND* for probabilistic HTN domains.
 pub fn run(
     problem: &FONDProblem,
     h_type: HeuristicType,
     tiebreaker: TiebreakerKind,
+) -> (SearchResult, SearchStats) {
+    run_internal(problem, h_type, tiebreaker, SearchMode::MaxProb)
+}
+
+/// Min-cost AND* for standard FOND (non-probabilistic) domains.
+/// Returns a strong plan (success probability 1.0) minimising the number of
+/// compound-node assignments (policy length).  Uses the classical heuristic
+/// to guide search; `--prob` is not supported in this mode.
+pub fn run_fond(
+    problem: &FONDProblem,
+    h_type: HeuristicType,
+    tiebreaker: TiebreakerKind,
+) -> (SearchResult, SearchStats) {
+    run_internal(problem, h_type, tiebreaker, SearchMode::MinCost)
+}
+
+fn run_internal(
+    problem: &FONDProblem,
+    h_type: HeuristicType,
+    tiebreaker: TiebreakerKind,
+    mode: SearchMode,
 ) -> (SearchResult, SearchStats) {
     let start_time = Instant::now();
     let (outcome_det, bijection) = OutcomeDeterminizer::from_fond_problem(problem);
@@ -370,9 +437,12 @@ pub fn run(
         &relaxed,
         &bijection,
         &h_type,
-        SearchMode::MaxProb,
+        mode,
     );
-    let f_value = PartialPolicyState::compute_f_by_vi(&init_reach);
+    let f_value = match mode {
+        SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&init_reach),
+        SearchMode::MinCost => fond_f_value(&init_reach, &init_out_c, 0),
+    };
     let init_sig = compute_reach_sig(&init_reach, f_value, 0);
 
     // Root state: no parent, so base_reach is empty; full reach lives in extension.
@@ -405,14 +475,12 @@ pub fn run(
     let mut best_closed_policy: Option<PartialPolicyState> = None;
 
     while let Some(pi) = open.pop() {
-        // ── Optimality check ───────────────────────────────────────────────
-        // If we already have a closed policy and the current (highest-f)
-        // item from the open list can't beat it, we're done.
-        if let Some(_) = &best_closed_policy {
-            if pi.f_value <= best_closed_prob {
-                // All remaining open states have f ≤ pi.f_value ≤ best_closed_prob,
-                // so no policy can improve on the best closed one.
-                break;
+        // ── MaxProb: stop when open top can't beat best closed ─────────────
+        if mode == SearchMode::MaxProb {
+            if let Some(_) = &best_closed_policy {
+                if pi.f_value <= best_closed_prob {
+                    break;
+                }
             }
         }
 
@@ -431,34 +499,46 @@ pub fn run(
 
         // ── Closed policy found ────────────────────────────────────────────
         if pi.is_closed() {
-            let success_prob = pi.f_value;
-            if success_prob > best_closed_prob {
-                best_closed_prob = success_prob;
-                best_closed_policy = Some(pi);
-                eprintln!(
-                    "[AND*] new best closed: prob={:.6} | explored={} | {:.1}s",
-                    best_closed_prob,
-                    explored,
-                    start_time.elapsed().as_secs_f64()
-                );
-                // Perfect probability — can't improve beyond 1.0.
-                if best_closed_prob >= 1.0 - 1e-12 {
-                    break;
+            match mode {
+                SearchMode::MaxProb => {
+                    let success_prob = pi.f_value;
+                    if success_prob > best_closed_prob {
+                        best_closed_prob = success_prob;
+                        best_closed_policy = Some(pi);
+                        eprintln!(
+                            "[AND*] new best closed: prob={:.6} | explored={} | {:.1}s",
+                            best_closed_prob,
+                            explored,
+                            start_time.elapsed().as_secs_f64()
+                        );
+                        if best_closed_prob >= 1.0 - 1e-12 {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                SearchMode::MinCost => {
+                    let reach = pi.reconstruct_reach();
+                    if is_reach_proper(&reach) {
+                        best_closed_prob = 1.0;
+                        best_closed_policy = Some(pi);
+                        eprintln!(
+                            "[AND*] new best closed: prob={:.6} | explored={} | {:.1}s",
+                            best_closed_prob,
+                            explored,
+                            start_time.elapsed().as_secs_f64()
+                        );
+                        break; // first proper closed policy is optimal
+                    }
+                    continue; // improper (trapped cycle) — keep searching
                 }
             }
-            // Don't return yet — the open list may contain policies with
-            // higher f-values that could lead to better closed solutions.
-            continue;
         }
 
         // ── Reconstruct this state's full reach (clone-on-pop) ─────────────
-        // base_reach is shared with siblings via Rc — the clone here is the
-        // only time we pay the full-reach clone cost, and only for states that
-        // are actually explored (not every state pushed to the open list).
         let reach = pi.reconstruct_reach();
-        let reach_rc = Rc::new(reach); // shared among children created below
+        let reach_rc = Rc::new(reach);
 
-        // Rebuild index_map from reach.  Not stored per state; O(|reach|·key_cost).
         let index_map: HashMap<MemoKey, usize> = reach_rc
             .iter()
             .enumerate()
@@ -497,7 +577,6 @@ pub fn run(
                 _ => unreachable!(),
             };
 
-            // Compute the full child reach (parent + modification + extension).
             let (new_reach_full, _new_index_map, new_out_c) = compute_reach_incremental(
                 &reach_rc,
                 &index_map,
@@ -508,14 +587,20 @@ pub fn run(
                 &relaxed,
                 &bijection,
                 &h_type,
-                SearchMode::MaxProb,
+                mode,
             );
-            let new_f = PartialPolicyState::compute_f_by_vi(&new_reach_full);
+            let new_f = match mode {
+                SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_reach_full),
+                SearchMode::MinCost => {
+                    fond_f_value(&new_reach_full, &new_out_c, pi.policy_size + 1)
+                }
+            };
 
-            // Prune children that can't beat the best known closed policy
-            // or can't meet the rho threshold.
-            let prune_bound = best_closed_prob.max(problem.rho);
-            if new_f < prune_bound {
+            let should_prune = match mode {
+                SearchMode::MaxProb => new_f < best_closed_prob.max(problem.rho),
+                SearchMode::MinCost => new_f == f64::NEG_INFINITY,
+            };
+            if should_prune {
                 continue;
             }
 
@@ -1084,5 +1169,68 @@ mod tests {
             ),
             SearchResult::NoSolution => panic!("Expected partial-probability solution"),
         }
+    }
+
+    // ── fond_f_value unit tests ───────────────────────────────────────────
+
+    #[test]
+    fn fond_f_value_closed_policy_cost() {
+        // Closed policy (out_c empty) with 3 assignments → f = -(3 + 0) = -3
+        let f = super::fond_f_value(&[], &[], 3);
+        assert!((f - (-3.0)).abs() < 1e-9, "expected -3.0, got {}", f);
+    }
+
+    #[test]
+    fn fond_f_value_uses_max_of_frontier() {
+        // out_c = [0, 1], cost_lower = [2.0, 5.0], policy_size = 3
+        // f = -(3 + max(2.0, 5.0)) = -8.0
+        use super::{NodeKind, ReachNode};
+        let dummy_tn = || Rc::new(HTN::new(
+            std::collections::BTreeSet::new(),
+            vec![],
+            Rc::new(DomainTasks::new(vec![])),
+            HashMap::new(),
+        ));
+        let reach = vec![
+            ReachNode {
+                tn: dummy_tn(),
+                state: Rc::new(HashSet::new()),
+                kind: NodeKind::Compound,
+                prob_upper: 1.0,
+                cost_lower: 2.0,
+                successors: vec![],
+            },
+            ReachNode {
+                tn: dummy_tn(),
+                state: Rc::new(HashSet::new()),
+                kind: NodeKind::Compound,
+                prob_upper: 1.0,
+                cost_lower: 5.0,
+                successors: vec![],
+            },
+        ];
+        let f = super::fond_f_value(&reach, &[0, 1], 3);
+        assert!((f - (-8.0)).abs() < 1e-9, "expected -8.0, got {}", f);
+    }
+
+    #[test]
+    fn fond_f_value_infeasible_frontier_gives_neg_inf() {
+        // One frontier node has cost_lower = INF → prune
+        use super::{NodeKind, ReachNode};
+        let reach = vec![ReachNode {
+            tn: Rc::new(HTN::new(
+                std::collections::BTreeSet::new(),
+                vec![],
+                Rc::new(DomainTasks::new(vec![])),
+                HashMap::new(),
+            )),
+            state: Rc::new(HashSet::new()),
+            kind: NodeKind::Compound,
+            prob_upper: 0.0,
+            cost_lower: f64::INFINITY,
+            successors: vec![],
+        }];
+        let f = super::fond_f_value(&reach, &[0], 1);
+        assert_eq!(f, f64::NEG_INFINITY, "expected NEG_INFINITY for infeasible frontier");
     }
 }

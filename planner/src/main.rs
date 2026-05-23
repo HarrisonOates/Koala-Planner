@@ -82,6 +82,11 @@ fn main() {
                 println!("Tiebreaker: {:?}", tiebreaker);
                 htn_andstar(&problem, h_type, tiebreaker)
             }
+            "--andstar-fond" => {
+                println!("Running HTN-AND* FOND solver (min-cost)");
+                println!("Tiebreaker: {:?}", tiebreaker);
+                htn_andstar_fond(&problem, h_type, tiebreaker)
+            }
             _ => panic!("Did not recognise flag {}", flag),
         },
         None => ao_star(&problem, h_type),
@@ -105,6 +110,21 @@ fn ao_star(problem: &FONDProblem, h_type: HeuristicType) {
 
 fn htn_andstar(problem: &FONDProblem, h_type: HeuristicType, tiebreaker: TiebreakerKind) {
     let (solution, stats) = search::htn_andstar::run(problem, h_type, tiebreaker);
+    print!("{}", stats);
+    match solution {
+        SearchResult::Success(x) => {
+            println!("makespan: {}", x.makespan);
+            println!("policy entries: {}", x.transitions.len());
+            print!("{}", x);
+        }
+        SearchResult::NoSolution => {
+            println!("Problem has no solution");
+        }
+    }
+}
+
+fn htn_andstar_fond(problem: &FONDProblem, h_type: HeuristicType, tiebreaker: TiebreakerKind) {
+    let (solution, stats) = search::htn_andstar::run_fond(problem, h_type, tiebreaker);
     print!("{}", stats);
     match solution {
         SearchResult::Success(x) => {
