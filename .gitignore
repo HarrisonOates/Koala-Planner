@@ -4,3 +4,4 @@
 *.ground
 *.sas+
 *.txt
+.worktrees/
