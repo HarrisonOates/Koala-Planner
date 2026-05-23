@@ -82,12 +82,46 @@ fn compute_reach(
             continue;
         }
 
-        let has_decomposition = expansions
+        // Primitive-eager: if ANY unconstrained task is an applicable primitive, execute
+        // it before assigning methods to concurrent compound tasks.  This ensures method
+        // assignments always happen in a state where no concurrent primitives are pending,
+        // giving a correct strong policy for partially-ordered task networks.
+        // progress() lists primitives before decompositions, so `find` below returns the
+        // lowest-BTreeSet-ID primitive — a fixed, consistent linearisation for the executor.
+        let first_primitive = expansions
             .iter()
-            .any(|e| e.connection_label.is_decomposition());
+            .find(|e| !e.connection_label.is_decomposition());
 
-        if has_decomposition {
-            // ── Compound task ─────────────────────────────────────────────
+        if let Some(prim_expansion) = first_primitive {
+            // ── Primitive (or mixed primitive+compound) — execute primitive first ──
+            let mut successors: Vec<(usize, f64)> = Vec::new();
+            for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                let p = prim_expansion
+                    .outcome_probabilities
+                    .get(i)
+                    .copied()
+                    .unwrap_or(1.0);
+                let succ_key = make_key(&prim_expansion.tn, outcome_state);
+                let succ_idx = get_or_insert(
+                    succ_key,
+                    &mut index_map,
+                    &mut reach,
+                    &mut queue,
+                    prim_expansion.tn.clone(),
+                    outcome_state.clone(),
+                );
+                successors.push((succ_idx, p));
+            }
+            reach[node_idx] = Some(ReachNode {
+                tn,
+                state,
+                kind: NodeKind::Primitive,
+                prob_upper: 1.0,
+                cost_lower: 0.0,
+                successors,
+            });
+        } else {
+            // ── Compound: all unconstrained tasks are compound ────────────────
             let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
             let (prob_upper, cost_lower) = match mode {
                 SearchMode::MinCost => {
@@ -147,40 +181,6 @@ fn compute_reach(
                 });
                 out_c.push(node_idx);
             }
-        } else {
-            // ── Primitive action ──────────────────────────────────────────
-            // progress() returns one expansion per unconstrained primitive.
-            // We execute only the first one — the task network ordering
-            // determines which primitive runs next; summing all expansions
-            // would make probabilities exceed 1.0.
-            let mut successors: Vec<(usize, f64)> = Vec::new();
-            if let Some(expansion) = expansions.first() {
-                for (i, outcome_state) in expansion.states.iter().enumerate() {
-                    let p = expansion
-                        .outcome_probabilities
-                        .get(i)
-                        .copied()
-                        .unwrap_or(1.0);
-                    let succ_key = make_key(&expansion.tn, outcome_state);
-                    let succ_idx = get_or_insert(
-                        succ_key,
-                        &mut index_map,
-                        &mut reach,
-                        &mut queue,
-                        expansion.tn.clone(),
-                        outcome_state.clone(),
-                    );
-                    successors.push((succ_idx, p));
-                }
-            }
-            reach[node_idx] = Some(ReachNode {
-                tn,
-                state,
-                kind: NodeKind::Primitive,
-                prob_upper: 1.0,
-                cost_lower: 0.0,
-                successors,
-            });
         }
     }
 
@@ -287,50 +287,29 @@ fn compute_reach_incremental(
             continue;
         }
 
-        let has_decomposition = expansions
+        // Primitive-eager: same semantics as compute_reach — primitives before compounds.
+        let first_primitive = expansions
             .iter()
-            .any(|e| e.connection_label.is_decomposition());
+            .find(|e| !e.connection_label.is_decomposition());
 
-        if has_decomposition {
-            let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
-            let (prob_upper, cost_lower) = match mode {
-                SearchMode::MinCost => {
-                    let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
-                    let p = if h == f32::INFINITY { 0.0 } else { 1.0 };
-                    (p, c)
-                }
-                SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
-            };
-            // Newly discovered compound nodes are unassigned — always Compound.
-            reach[n_idx] = Some(ReachNode {
-                tn,
-                state,
-                kind: NodeKind::Compound,
-                prob_upper,
-                cost_lower,
-                successors: vec![],
-            });
-            out_c.push(n_idx);
-        } else {
+        if let Some(prim_expansion) = first_primitive {
             let mut successors: Vec<(usize, f64)> = Vec::new();
-            if let Some(expansion) = expansions.first() {
-                for (i, outcome_state) in expansion.states.iter().enumerate() {
-                    let p = expansion
-                        .outcome_probabilities
-                        .get(i)
-                        .copied()
-                        .unwrap_or(1.0);
-                    let sk = make_key(&expansion.tn, outcome_state);
-                    let si = get_or_insert(
-                        sk,
-                        &mut index_map,
-                        &mut reach,
-                        &mut queue,
-                        expansion.tn.clone(),
-                        outcome_state.clone(),
-                    );
-                    successors.push((si, p));
-                }
+            for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                let p = prim_expansion
+                    .outcome_probabilities
+                    .get(i)
+                    .copied()
+                    .unwrap_or(1.0);
+                let sk = make_key(&prim_expansion.tn, outcome_state);
+                let si = get_or_insert(
+                    sk,
+                    &mut index_map,
+                    &mut reach,
+                    &mut queue,
+                    prim_expansion.tn.clone(),
+                    outcome_state.clone(),
+                );
+                successors.push((si, p));
             }
             reach[n_idx] = Some(ReachNode {
                 tn,
@@ -340,6 +319,26 @@ fn compute_reach_incremental(
                 cost_lower: 0.0,
                 successors,
             });
+        } else {
+            // All unconstrained tasks are compound — newly discovered, so always Compound.
+            let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
+            let (prob_upper, cost_lower) = match mode {
+                SearchMode::MinCost => {
+                    let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
+                    let p = if h == f32::INFINITY { 0.0 } else { 1.0 };
+                    (p, c)
+                }
+                SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
+            };
+            reach[n_idx] = Some(ReachNode {
+                tn,
+                state,
+                kind: NodeKind::Compound,
+                prob_upper,
+                cost_lower,
+                successors: vec![],
+            });
+            out_c.push(n_idx);
         }
     }
 
