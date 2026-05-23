@@ -286,7 +286,8 @@ mod tests {
             facts: Facts::new(vec!["1".to_string(), "2".to_string(), "3".to_string()]),
             tasks: domain.clone(),
             initial_state: HashSet::from([]),
-            init_tn: init_tn
+            init_tn: init_tn,
+            rho: 1.0,
         };
         problem.collapse_tn();
 
@@ -310,7 +311,8 @@ mod tests {
             facts: Facts::new(vec!["1".to_string(), "2".to_string(), "3".to_string()]),
             tasks: domain.clone(),
             initial_state: HashSet::from([]),
-            init_tn: new_tn
+            init_tn: new_tn,
+            rho: 1.0,
         };
         problem2.collapse_tn();
 
@@ -388,7 +390,8 @@ mod tests {
             facts: Facts::new(vec![format!("1"),format!("2"),format!("3"),format!("4"),format!("5")]),
             tasks: domain.clone(),
             initial_state: HashSet::new(),
-            init_tn: tn
+            init_tn: tn,
+            rho: 1.0,
         };
         problem.collapse_tn();
         let tn = problem.init_tn;

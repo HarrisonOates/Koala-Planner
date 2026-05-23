@@ -16,10 +16,10 @@ pub fn weak_ld_problem_1() {
     let problem = FONDProblem::new(
         vec![],
         vec![
-            (String::from("prim_a"), vec![], vec![]),
-            (String::from("prim_b"), vec![], vec![]),
-            (String::from("prim_e"), vec![], vec![]),
-            (String::from("prim_x"), vec![], vec![]),
+            (String::from("prim_a"), vec![], vec![], vec![1.0]),
+            (String::from("prim_b"), vec![], vec![], vec![1.0]),
+            (String::from("prim_e"), vec![], vec![], vec![1.0]),
+            (String::from("prim_x"), vec![], vec![], vec![1.0]),
         ],
         vec![
             (
@@ -86,11 +86,13 @@ pub fn weak_ld_problem_2() {
                 String::from("a"),
                 vec![],
                 vec![(vec![], vec![f2.clone()]), (vec![], vec![])],
+                vec![0.5, 0.5],
             ),
             (
                 String::from("b"),
                 vec![],
                 vec![(vec![f3.clone()], vec![f2.clone()])],
+                vec![1.0],
             ),
         ],
         vec![
@@ -159,8 +161,8 @@ pub fn weak_ld_problem_3() {
     let problem = FONDProblem::new(
         vec![f1.clone()],
         vec![
-            (a.clone(), vec![], vec![(vec![], vec![])]),
-            (b.clone(), vec![f1.clone()], vec![(vec![], vec![])]),
+            (a.clone(), vec![], vec![(vec![], vec![])], vec![1.0]),
+            (b.clone(), vec![f1.clone()], vec![(vec![], vec![])], vec![1.0]),
         ],
         vec![
             (m1.clone(), init.clone(), vec![b.clone()], vec![]),

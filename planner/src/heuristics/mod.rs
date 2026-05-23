@@ -5,5 +5,5 @@ use crate::task_network::{HTN, Task, PrimitiveAction, CompoundTask, Applicabilit
 pub use structs::TDG;
 use crate::domain_description::{ClassicalDomain, DomainTasks};
 
-pub use classical::{h_ff, h_add, h_max};
+pub use classical::{h_ff, h_add, h_max, h_prob_max};
 

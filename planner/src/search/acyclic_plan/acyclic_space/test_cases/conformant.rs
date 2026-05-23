@@ -46,7 +46,8 @@ pub fn conformant_test() {
         ]),
         tasks: domain,
         initial_state: HashSet::from([0]),
-        init_tn: tn
+        init_tn: tn,
+        rho: 1.0,
     };
     problem.collapse_tn();
     let (result, _) = AOStarSearch::run(&problem, crate::search::acyclic_plan::HeuristicType::HAdd);

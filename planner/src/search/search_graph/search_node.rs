@@ -14,9 +14,10 @@ pub struct SearchGraphNode {
     pub cost: f32,
     pub status: NodeStatus,
     pub depth: u16,
+    pub success_probability: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NodeStatus {
     Solved,
     OnGoing,
@@ -91,6 +92,7 @@ impl SearchGraphNode {
             HeuristicType::HFF => h_ff(&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HAdd => h_add(&encoder.domain, &relaxed_state, &goal_state),
             HeuristicType::HMax => h_max(&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HProb => h_add(&encoder.domain, &relaxed_state, &goal_state),
         };
         
         // Compensate for the repetition of tasks
@@ -100,5 +102,21 @@ impl SearchGraphNode {
             }
         }
         val
+    }
+
+    /// Returns probability upper bound in [0.0, 1.0]. 0.0 = dead-end.
+    pub fn h_prob_val(
+        tn: &HTN,
+        state: &HashSet<u32>,
+        encoder: &RelaxedComposition,
+        bijection: &HashMap<u32, u32>,
+    ) -> f64 {
+        let occurances = tn.count_tasks_with_frequency();
+        let task_ids: Vec<u32> = occurances.iter()
+            .map(|(task, _)| *bijection.get(task).unwrap())
+            .collect();
+        let relaxed_state = encoder.compute_relaxed_state(&task_ids, state);
+        let goal_state = encoder.compute_goal_state(&task_ids);
+        h_prob_max(&encoder.domain, &relaxed_state, &goal_state)
     }
 }

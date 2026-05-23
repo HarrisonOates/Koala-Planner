@@ -626,7 +626,8 @@ mod tests {
             facts: Facts::new(vec![]),
             tasks: domain,
             initial_state: HashSet::new(),
-            init_tn: network
+            init_tn: network,
+            rho: 1.0,
         };
         problem.collapse_tn();
         assert_eq!(problem.init_tn.count_tasks(), 1);

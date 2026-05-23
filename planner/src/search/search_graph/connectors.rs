@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use super::NodeExpansion;
 use super::ConnectionLabel;
@@ -13,7 +13,8 @@ pub struct Connector {
     pub children: HashSet<u32>,
     pub cost: f32,
     pub is_marked: bool,
-    pub action_type: ConnectionLabel
+    pub action_type: ConnectionLabel,
+    pub outcome_probs: HashMap<u32, f64>,
 }
 
 impl NodeConnections {
@@ -57,20 +58,22 @@ mod test {
             children: HashSet::from([1,2,3]),
             cost: 0.0,
             is_marked: false,
-            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string())
-            
+            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string()),
+            outcome_probs: HashMap::new(),
         };
         let arc2 = Connector {
             children: HashSet::from([5,4]),
             cost: 0.0,
             is_marked: true,
-            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m2".to_string())
+            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m2".to_string()),
+            outcome_probs: HashMap::new(),
         };
         let arc3 = Connector {
             children: HashSet::from([7,54]),
             cost: 0.0,
             is_marked: false,
-            action_type: ConnectionLabel::Execution("p1".to_string(), 1)
+            action_type: ConnectionLabel::Execution("p1".to_string(), 1),
+            outcome_probs: HashMap::new(),
         };
         let mut connections = NodeConnections {
             children: vec![arc1, arc2, arc3]

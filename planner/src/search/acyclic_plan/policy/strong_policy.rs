@@ -16,6 +16,7 @@ pub struct PolicyOutput{
 pub struct StrongPolicy {
     pub transitions: Vec<(PolicyNode, PolicyOutput)>,
     pub makespan: u16,
+    pub success_probability: f64,
 }
 
 impl StrongPolicy {
@@ -24,7 +25,12 @@ impl StrongPolicy {
         let mut policy = vec![];
         let mut visited = HashSet::new();
         let mut working_set: LinkedList<u32> = LinkedList::from([computation_history.root]);
-        let mut makespan = u16::MIN;;
+        let mut makespan = u16::MIN;
+        let success_probability = computation_history.ids
+            .get(&computation_history.root)
+            .unwrap()
+            .borrow()
+            .success_probability;
         // TOOD: for each branch the execution history changes
         while !working_set.is_empty() {
             let id = working_set.pop_front().unwrap();
@@ -81,16 +87,17 @@ impl StrongPolicy {
                 }
             } 
         }
-        StrongPolicy { transitions: policy, makespan: makespan }
+        StrongPolicy { transitions: policy, makespan, success_probability }
     }
 }
 
 impl std::fmt::Display for StrongPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         for (input, output) in self.transitions.iter() {
-            writeln!(f, "TN: {} \nState: {:?}\nTask: {}\nMethod: {}", input.tn, input.state, output.task, output.method);
-            writeln!(f, "---------------------------------------------");
+            writeln!(f, "TN: {} \nState: {:?}\nTask: {}\nMethod: {}", input.tn, input.state, output.task, output.method)?;
+            writeln!(f, "---------------------------------------------")?;
         }
+        writeln!(f, "Success probability: {:.4}", self.success_probability)?;
         Ok(())
     }
 }

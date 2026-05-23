@@ -22,7 +22,8 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
                     expansions.push(NodeExpansion {
                         connection_label: ConnectionLabel::Execution(a.name.clone(), a.cost),
                         tn: Rc::new(new_tn),
-                        states: vec![Rc::new(new_state)]
+                        states: vec![Rc::new(new_state)],
+                        outcome_probabilities: vec![1.0],
                     });
                 } else {
                     let new_tn = Rc::new(tn.apply_action(*p));
@@ -35,7 +36,8 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
                     expansions.push(NodeExpansion {
                         connection_label: ConnectionLabel::Execution(a.name.clone(), a.cost),
                         tn: new_tn,
-                        states: new_states
+                        states: new_states,
+                        outcome_probabilities: a.probabilities.clone(),
                     });
                 }
             }
@@ -54,7 +56,8 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
                         method.name.clone(),
                     ),
                     tn: new_tn,
-                    states: vec![state.clone()]
+                    states: vec![state.clone()],
+                    outcome_probabilities: vec![1.0],
                 });
             }
         }
@@ -68,6 +71,7 @@ pub struct NodeExpansion {
     pub connection_label: ConnectionLabel,
     pub tn: Rc<HTN>,
     pub states: Vec<Rc<HashSet<u32>>>,
+    pub outcome_probabilities: Vec<f64>,
 }
 
 #[derive(Debug)]

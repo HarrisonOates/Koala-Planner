@@ -61,7 +61,8 @@ pub fn failure_test() {
         facts: Facts::new(vec!["1".to_string(), "4".to_string()]),
         tasks: domain,
         initial_state: HashSet::from([1, 4]),
-        init_tn: init_tn
+        init_tn: init_tn,
+        rho: 1.0,
     };
     problem.collapse_tn();
     let (result, _) = AOStarSearch::run(&problem, crate::search::acyclic_plan::HeuristicType::HAdd);

@@ -91,3 +91,30 @@ class FONDMerger:
             self.domain["methods"].pop(method)
         for method_precond in nd_method_preconds:
             self.domain["actions"].pop(method_precond)
+    def inject_probabilities(self, prob_map=None):
+        """
+        Assign probability distributions to all actions.
+
+        For each action, if prob_map contains an entry for its base name
+        (ungrounded), use those probabilities. Otherwise, assign uniform.
+
+        Args:
+            prob_map: dict mapping ungrounded action names to probability lists,
+                      e.g. {"observe": [0.8, 0.2]}. None means all uniform.
+        """
+        if prob_map is None:
+            prob_map = {}
+        for action_name in self.domain["actions"]:
+            n_effects = len(self.domain["actions"][action_name]["effects"])
+            # Extract base name by stripping parameters in brackets
+            base_name = action_name.split("[")[0] if "[" in action_name else action_name
+            if base_name in prob_map:
+                probs = prob_map[base_name]
+                if len(probs) != n_effects:
+                    raise ValueError(
+                        f"Action '{action_name}': prob_map has {len(probs)} "
+                        f"probabilities but action has {n_effects} effects"
+                    )
+                self.domain["actions"][action_name]["probability"] = probs
+            else:
+                self.domain["actions"][action_name]["probability"] = [1.0 / n_effects] * n_effects

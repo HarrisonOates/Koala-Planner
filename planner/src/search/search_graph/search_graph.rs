@@ -20,6 +20,7 @@ pub struct SearchGraph {
     // Keeps teack of maximum u32 ID used in the tree
     pub cursor: u32,
     pub relaxed_domain: Option<(RelaxedComposition, HashMap<u32, u32>)>,
+    pub rho: f64,
 }
 
 impl SearchGraph  {
@@ -37,6 +38,7 @@ impl SearchGraph  {
             cost: 0.0,
             status: NodeStatus::OnGoing,
             depth: 0,
+            success_probability: 0.0,
         };
         // search graph
         SearchGraph {
@@ -44,6 +46,7 @@ impl SearchGraph  {
             root: 1,
             cursor: 2,
             relaxed_domain: Some((relaxed, bijection)),
+            rho: problem.rho,
         }
     }
 
@@ -70,9 +73,11 @@ impl SearchGraph  {
         if node.is_goal() {
             node.status = NodeStatus::Solved;
             node.cost = 0.0;
+            node.success_probability = 1.0;
         } else {
             node.status = NodeStatus::Failed;
             node.cost = f32::INFINITY;
+            node.success_probability = 0.0;
         }
     }
 
@@ -165,20 +170,25 @@ impl SearchGraph  {
                 children: HashSet::new(),
                 cost: 1.0,
                 is_marked: false,
-                action_type: expansion.connection_label
+                action_type: expansion.connection_label,
+                outcome_probs: HashMap::new(),
             };
-            for state in expansion.states.iter() {
+            for (state_idx, state) in expansion.states.iter().enumerate() {
+                let outcome_prob = expansion.outcome_probabilities.get(state_idx).copied().unwrap_or(1.0);
                 let visited_before = self.visited(expansion.tn.as_ref(), state.as_ref());
                 match visited_before {
                     Some(x) => {
                         self.ids.get(&x).unwrap().borrow_mut().add_parent(x);
                         hyperarc.children.insert(x);
+                        hyperarc.outcome_probs.insert(x, outcome_prob);
                     },
                     None => {
                         let mut node_label = NodeStatus::OnGoing;
                         let mut h = 0.0;
+                        let mut sp = 0.0;
                         if expansion.tn.is_goal() {
                             node_label = NodeStatus::Solved;
+                            sp = 1.0;
                         } else if !skip_heuristic {
                             match &self.relaxed_domain {
                                 Some((encoder, bijection)) => {
@@ -188,6 +198,7 @@ impl SearchGraph  {
                             }
                             if h == f32::INFINITY {
                                 node_label = NodeStatus::Failed;
+                                sp = 0.0;
                             }
                         }
                         let new_search_node = SearchGraphNode {
@@ -197,10 +208,12 @@ impl SearchGraph  {
                             connections: None,
                             cost: h,
                             status: node_label,
-                            depth: depth + 1
+                            depth: depth + 1,
+                            success_probability: sp,
                         };
                         self.ids.insert(self.cursor, RefCell::new(new_search_node));
                         hyperarc.children.insert(self.cursor);
+                        hyperarc.outcome_probs.insert(self.cursor, outcome_prob);
                         self.cursor += 1;
                     }
                 }
@@ -220,10 +233,10 @@ mod tests {
     use super::*;
     fn generate_tree() -> SearchGraph {
         let dummy_action = Task::Primitive(PrimitiveAction::new(
-            "dummy_action".to_string(), 
-            1, 
+            "dummy_action".to_string(),
+            1,
             HashSet::new(),
-            vec![HashSet::new(), HashSet::from([1,2])], 
+            vec![HashSet::new(), HashSet::from([1,2])],
             vec![HashSet::new(), HashSet::from([3])]
         ));
         let dummy_domain = Rc::new(DomainTasks::new(vec![dummy_action]));
@@ -233,15 +246,19 @@ mod tests {
             state: Rc::new(HashSet::new()),
             connections: Some(NodeConnections { children: vec![
                 Connector { children: HashSet::from([2]), cost: 1.0, is_marked: false,
-                    action_type: ConnectionLabel::Execution("p1".to_string(), 1)},
+                    action_type: ConnectionLabel::Execution("p1".to_string(), 1),
+                    outcome_probs: HashMap::from([(2, 1.0)])},
                 Connector { children: HashSet::from([3, 4]), cost: 1.0, is_marked: true,
-                    action_type: ConnectionLabel::Execution("p2".to_string(), 2)},
+                    action_type: ConnectionLabel::Execution("p2".to_string(), 2),
+                    outcome_probs: HashMap::from([(3, 0.5), (4, 0.5)])},
                 Connector { children: HashSet::from([5]), cost: 0.0, is_marked: false,
-                    action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string())},
+                    action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string()),
+                    outcome_probs: HashMap::from([(5, 1.0)])},
             ]}),
             cost: 2.0,
             status: NodeStatus::OnGoing,
-            depth: 0
+            depth: 0,
+            success_probability: 0.0,
         };
         let n2 = SearchGraphNode {
             parents: Some(vec![1]),
@@ -250,7 +267,8 @@ mod tests {
             connections: None,
             cost: f32::INFINITY,
             status: NodeStatus::Failed,
-            depth: 1
+            depth: 1,
+            success_probability: 0.0,
         };
         let n3 = SearchGraphNode {
             parents: Some(vec![1]),
@@ -258,11 +276,13 @@ mod tests {
             state: Rc::new(HashSet::new()),
             connections: Some(NodeConnections { children: vec![
                 Connector { children: HashSet::from([6]), cost: 1.0, is_marked: true,
-                    action_type: ConnectionLabel::Decomposition("t1".to_string(), "m3".to_string())}
+                    action_type: ConnectionLabel::Decomposition("t1".to_string(), "m3".to_string()),
+                    outcome_probs: HashMap::from([(6, 1.0)])}
             ]}),
             cost: 2.0,
             status: NodeStatus::OnGoing,
-            depth: 1
+            depth: 1,
+            success_probability: 0.0,
         };
         let n4 = SearchGraphNode {
             parents: Some(vec![1]),
@@ -271,7 +291,8 @@ mod tests {
             connections: None,
             cost: 0.0,
             status: NodeStatus::Solved,
-            depth: 1
+            depth: 1,
+            success_probability: 1.0,
         };
         let n5 = SearchGraphNode {
             parents: Some(vec![1]),
@@ -279,25 +300,28 @@ mod tests {
             state: Rc::new(HashSet::new()),
             connections: Some(NodeConnections { children: vec![
                 Connector { children: HashSet::from([7, 8]), cost: 1.0, is_marked: false,
-                    action_type: ConnectionLabel::Execution("p3".to_string(), 1)},
+                    action_type: ConnectionLabel::Execution("p3".to_string(), 1),
+                    outcome_probs: HashMap::from([(7, 0.5), (8, 0.5)])},
             ]}),
             cost: 3.0,
             status: NodeStatus::OnGoing,
-            depth: 1
+            depth: 1,
+            success_probability: 0.0,
         };
         let n6 = SearchGraphNode {
             parents: Some(vec![3]),
             state: Rc::new(HashSet::new()),
             tn: Rc::new(HTN::new(
-                    BTreeSet::from([1]), 
+                    BTreeSet::from([1]),
                     vec![],
                     dummy_domain.clone(),
                     HashMap::from([(1, dummy_domain.get_id("dummy_action"))])
                 )),
             connections: None,
-            cost: 1.0,  
+            cost: 1.0,
             status: NodeStatus::OnGoing,
-            depth: 2
+            depth: 2,
+            success_probability: 0.0,
         };
         let n7 = SearchGraphNode {
             parents: Some(vec![5]),
@@ -306,7 +330,8 @@ mod tests {
             connections: None,
             cost: 2.0,
             status: NodeStatus::OnGoing,
-            depth: 2
+            depth: 2,
+            success_probability: 0.0,
         };
         let n8 = SearchGraphNode {
             parents: Some(vec![5]),
@@ -315,7 +340,8 @@ mod tests {
             connections: None,
             cost: 1.0,
             status: NodeStatus::OnGoing,
-            depth: 2
+            depth: 2,
+            success_probability: 0.0,
         };
         SearchGraph {
             ids: HashMap::from([
@@ -324,7 +350,8 @@ mod tests {
             ]),
             root: 1,
             cursor: 9,
-            relaxed_domain: None
+            relaxed_domain: None,
+            rho: 1.0,
         }
     }
 
@@ -369,8 +396,8 @@ mod tests {
             state: Rc::new(HashSet::from([1,2])),
             tn: Rc::new(
                     HTN::new(
-                        BTreeSet::from([1,2]), 
-                        vec![(1,2)], 
+                        BTreeSet::from([1,2]),
+                        vec![(1,2)],
                         domain.clone(),
                 HashMap::from([(1,0), (2,1)])
                     )
@@ -378,13 +405,15 @@ mod tests {
             connections: None,
             cost: 10.0,
             status: NodeStatus::OnGoing,
-            depth: 0
+            depth: 0,
+            success_probability: 0.0,
         };
         let graph = SearchGraph {
             ids: HashMap::from([(1, RefCell::new(n1))]),
             root: 1,
             cursor: 2,
-            relaxed_domain: None
+            relaxed_domain: None,
+            rho: 1.0,
         };
         let visited = graph.visited(&
             HTN::new(

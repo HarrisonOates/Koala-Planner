@@ -9,6 +9,7 @@ pub struct PrimitiveAction{
     pub pre_cond: HashSet<u32>,
     pub add_effects: Vec<HashSet<u32>>,
     pub del_effects: Vec<HashSet<u32>>,
+    pub probabilities: Vec<f64>,
 }
 
 impl PrimitiveAction {
@@ -19,12 +20,33 @@ impl PrimitiveAction {
         add_effects: Vec<HashSet<u32>>,
         del_effects: Vec<HashSet<u32>>,
     ) -> Self {
+        let n = if add_effects.is_empty() { 1 } else { add_effects.len() };
+        let probabilities = vec![1.0 / n as f64; n];
         PrimitiveAction {
             name,
             cost,
             pre_cond,
             add_effects,
             del_effects,
+            probabilities,
+        }
+    }
+
+    pub fn new_with_probabilities(
+        name: String,
+        cost: u32,
+        pre_cond: HashSet<u32>,
+        add_effects: Vec<HashSet<u32>>,
+        del_effects: Vec<HashSet<u32>>,
+        probabilities: Vec<f64>,
+    ) -> Self {
+        PrimitiveAction {
+            name,
+            cost,
+            pre_cond,
+            add_effects,
+            del_effects,
+            probabilities,
         }
     }
 
@@ -53,14 +75,15 @@ impl PrimitiveAction {
         new_precond.extend(precond_extension);
         PrimitiveAction {
             name: self.name.clone(), cost: self.cost, pre_cond: new_precond,
-            add_effects: new_add_effects, del_effects: new_del_effects
+            add_effects: new_add_effects, del_effects: new_del_effects,
+            probabilities: self.probabilities.clone()
         }
     }
 
     pub fn delete_relax(&self) -> PrimitiveAction {
         let n_effects = self.add_effects.len() as u32;
         let mut new_del_effects = vec![];
-        for i in 0..n_effects {
+        for _i in 0..n_effects {
             new_del_effects.push(HashSet::new());
         }
         PrimitiveAction {
@@ -68,20 +91,22 @@ impl PrimitiveAction {
             cost: self.cost,
             pre_cond: self.pre_cond.clone(),
             add_effects: self.add_effects.clone(),
-            del_effects: new_del_effects
+            del_effects: new_del_effects,
+            probabilities: self.probabilities.clone()
         }
     }
 
     pub fn determinize(&self) -> Vec<PrimitiveAction> {
         let mut result = vec![];
         let mut counter = 0;
-        for (add, del) in self.add_effects.iter().zip(self.del_effects.iter()) {
+        for ((add, del), prob) in self.add_effects.iter().zip(self.del_effects.iter()).zip(self.probabilities.iter()) {
             let new_action = PrimitiveAction {
                 name: self.name.clone() + "__determinized_" + &counter.to_string(),
                 cost: self.cost,
                 pre_cond: self.pre_cond.clone(),
                 add_effects: vec![add.clone()],
-                del_effects: vec![del.clone()]
+                del_effects: vec![del.clone()],
+                probabilities: vec![*prob]
             };
             result.push(new_action);
             counter+=1;

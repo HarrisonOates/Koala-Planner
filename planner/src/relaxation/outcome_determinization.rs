@@ -36,11 +36,12 @@ impl OutcomeDeterminizer {
             rc_domain.clone(),
             HashMap::from([(1, new_top_id)])
         );
-        (FONDProblem { 
+        (FONDProblem {
             facts: problem.facts.clone(),
             tasks: rc_domain,
             initial_state: problem.initial_state.clone(),
-            init_tn: new_tn
+            init_tn: new_tn,
+            rho: problem.rho,
         }, bijection)
     }
 
@@ -209,7 +210,8 @@ mod tests {
             facts: facts,
             tasks: domain.clone(),
             initial_state: state,
-            init_tn: tn
+            init_tn: tn,
+            rho: 1.0,
         };
         problem.collapse_tn();
         let (relaxed, bijection) = OutcomeDeterminizer::from_fond_problem(&problem);

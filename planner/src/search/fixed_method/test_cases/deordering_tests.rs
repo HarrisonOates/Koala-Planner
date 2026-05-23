@@ -30,10 +30,10 @@ pub fn test_deordering() {
     let problem = FONDProblem::new(
         vec![], // no facts needed
         vec![
-            (a1.clone(), vec![], vec![]),
-            (a3.clone(), vec![], vec![]),
-            (a5.clone(), vec![], vec![]),
-            (a6.clone(), vec![], vec![]),
+            (a1.clone(), vec![], vec![], vec![1.0]),
+            (a3.clone(), vec![], vec![], vec![1.0]),
+            (a5.clone(), vec![], vec![], vec![1.0]),
+            (a6.clone(), vec![], vec![], vec![1.0]),
         ],
         vec![
             (
@@ -99,10 +99,10 @@ pub fn test_deordering2() {
     let problem = FONDProblem::new(
         vec![], // no facts needed
         vec![
-            (a.clone(), vec![], vec![]),
-            (b.clone(), vec![], vec![]),
-            (d.clone(), vec![], vec![]),
-            (e.clone(), vec![], vec![]),
+            (a.clone(), vec![], vec![], vec![1.0]),
+            (b.clone(), vec![], vec![], vec![1.0]),
+            (d.clone(), vec![], vec![], vec![1.0]),
+            (e.clone(), vec![], vec![], vec![1.0]),
         ],
         vec![
             (
@@ -173,13 +173,15 @@ fn test_deordering3() {
                     (vec![f2.clone()], vec![]),
                     (vec![f3.clone()], vec![]),
                 ],
+                vec![1.0/3.0, 1.0/3.0, 1.0/3.0],
             ),
             (
                 b.clone(),
                 vec![f1.clone(), f2.clone(), f3.clone()],
                 vec![(vec![], vec![])],
+                vec![1.0],
             ),
-            (noop.clone(), vec![], vec![(vec![], vec![])]),
+            (noop.clone(), vec![], vec![(vec![], vec![])], vec![1.0]),
         ],
         vec![
             (

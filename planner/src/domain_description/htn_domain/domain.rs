@@ -18,12 +18,13 @@ pub struct FONDProblem{
     pub tasks: Rc<DomainTasks>,
     pub initial_state: HashSet<u32>,
     pub init_tn: HTN,
+    pub rho: f64,
 }
 
 impl FONDProblem {
     pub fn new(literals: Vec<String>,
-                // Vector of tuples in the form (action name, preconds, Vec<(Vec<add>, Vec<del>)>)
-                actions: Vec<(String, Vec<String>, Vec<(Vec<String>, Vec<String>)>)>,
+                // Vector of tuples in the form (action name, preconds, Vec<(Vec<add>, Vec<del>)>, probabilities)
+                actions: Vec<(String, Vec<String>, Vec<(Vec<String>, Vec<String>)>, Vec<f64>)>,
                 // Vector of tuples in the form (method name, task name, vec<subtasks>, vec<orderings>)
                 methods: Vec<(String, String, Vec<String>, Vec<(u32, u32)>)>,
                 abstract_tasks: Vec<String>,
@@ -34,7 +35,7 @@ impl FONDProblem {
         let initial_state = init.iter().map(|x| facts.get_id(x)).collect();
         let mut processed_tasks  = Vec::new();
         // Process Tasks
-        for (name, precond, effects) in actions.into_iter() {
+        for (name, precond, effects, probabilities) in actions.into_iter() {
             let mut add_effs = vec![];
             let mut del_effs = vec![];
             for (add_effect, del_effect) in effects.into_iter() {
@@ -45,12 +46,13 @@ impl FONDProblem {
                 add_effs.push(add_set_i);
                 del_effs.push(del_set_i);
             }
-            let action = PrimitiveAction::new(
+            let action = PrimitiveAction::new_with_probabilities(
                 name,
                 1,
                 precond.into_iter().map(|x| facts.get_id(&x)).collect(),
                 add_effs,
-                del_effs
+                del_effs,
+                probabilities
             );
             processed_tasks.push(Task::Primitive(action));
         }
@@ -67,13 +69,16 @@ impl FONDProblem {
         // Process methods
         let mut parsed_methods = vec![];
         for (name, task, subtasks, orderings) in methods.into_iter() {
-            let processed_orderings: Vec<(u32, u32)> = orderings.into_iter()
-                    .map(|(x, y)| (&subtasks[x as usize], &subtasks[y as usize]))
-                    .map(|(x, y)| (domain_tasks.get_id(x), domain_tasks.get_id(y)))
-                    .collect();
-            let subtasks: BTreeSet<u32> = subtasks.into_iter().map(|x| domain_tasks.get_id(&x)).collect();
-            let mappings = HashMap::from_iter(subtasks.iter().cloned().zip(subtasks.iter().cloned()));
-            let decomposition = HTN::new(subtasks, processed_orderings, domain_tasks.clone(), mappings);
+            // Use sequential node IDs (0, 1, 2, ...) so duplicate task names
+            // (e.g. two "attempt[]" subtasks) each get a distinct node.
+            let n = subtasks.len() as u32;
+            let node_ids: BTreeSet<u32> = (0..n).collect();
+            let mappings: HashMap<u32, u32> = (0..n)
+                .map(|i| (i, domain_tasks.get_id(&subtasks[i as usize])))
+                .collect();
+            // Orderings from the JSON are already subtask indices, which equal node IDs.
+            let processed_orderings: Vec<(u32, u32)> = orderings.into_iter().collect();
+            let decomposition = HTN::new(node_ids, processed_orderings, domain_tasks.clone(), mappings);
             let method = Method::new(name, decomposition);
             let task_id = domain_tasks.get_id(&task);
             parsed_methods.push((task_id, method));
@@ -93,7 +98,8 @@ impl FONDProblem {
             facts,
             tasks: domain_tasks,
             initial_state,
-            init_tn: tn
+            init_tn: tn,
+            rho: 1.0,
         }
     }
 

@@ -77,12 +77,13 @@ impl RelaxedComposition  {
                     let top_down_precond = facts.get_id(&(p.name.clone() + "_reachable"));
                     let mut preconds = HashSet::from([top_down_precond]);
                     preconds.extend(p.pre_cond.clone());
-                    let new_action = PrimitiveAction::new(
+                    let new_action = PrimitiveAction::new_with_probabilities(
                         p.name.clone(),
                         p.cost,
                         preconds,
                         vec![add_effects],
-                        p.del_effects.clone()
+                        p.del_effects.clone(),
+                        p.probabilities.clone(),
                     );
                     result.push(new_action);
                 }
@@ -237,7 +238,8 @@ mod tests {
             facts: Facts::new(vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string()]),
             tasks: domain,
             initial_state: HashSet::new(),
-            init_tn: init_tn.clone()
+            init_tn: init_tn.clone(),
+            rho: 1.0,
         };
         p.collapse_tn();
         p

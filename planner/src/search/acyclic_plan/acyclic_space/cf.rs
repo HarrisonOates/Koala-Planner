@@ -24,12 +24,19 @@ impl AOStarSearch {
                 max_depth = depth;
             }
         }
+        let root_prob = search_graph.ids
+            .get(&search_graph.root)
+            .unwrap()
+            .borrow()
+            .success_probability;
         let result = search_graph.search_result(&problem.facts);
         let stats = SearchStats {
             max_depth: max_depth,
             search_nodes: search_graph.ids.len() as u32,
             explored_nodes: explored_nodes,
-            seach_time: start_time.elapsed()
+            seach_time: start_time.elapsed(),
+            success_probability: Some(root_prob),
+            rho_threshold: problem.rho,
         };
         (result, stats)
     }

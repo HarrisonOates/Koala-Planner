@@ -27,7 +27,9 @@ struct RawDomain {
 struct RawAction {
     cost: u32,
     precond: Vec<String>,
-    effects: Vec<RawEffect>
+    effects: Vec<RawEffect>,
+    #[serde(default)]
+    probability: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -49,6 +51,14 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
     // Process actions
     let mut actions = Vec::new();
     for (name, body) in domain.actions.into_iter() {
+        let n_effects = body.effects.len();
+        let probabilities: Vec<f64> = match body.probability {
+            Some(probs) => probs,
+            None => {
+                let n = if n_effects == 0 { 1 } else { n_effects };
+                vec![1.0 / n as f64; n]
+            }
+        };
         let effects: Vec <(Vec<String>, Vec<String>)> = body.effects
                     .into_iter()
                     .map(|x|
@@ -56,7 +66,7 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
                         x.del_eff.get("unconditional").unwrap().clone())
                     )
                     .collect();
-        let processed = (name, body.precond, effects);
+        let processed = (name, body.precond, effects, probabilities);
         actions.push(processed);
     }
     // Processed methods
@@ -65,14 +75,15 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
         let processed_m = (name, method.task, method.subtasks, method.orderings);
         methods.push(processed_m);
     }
-    FONDProblem::new(
+    let mut problem = FONDProblem::new(
         domain.facts,
         actions,
         methods,
         domain.tasks,
         domain.initial_state,
         domain.initial_abstract_task
-    )
+    );
+    problem
 }
 
 

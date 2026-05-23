@@ -56,6 +56,7 @@ pub fn is_goal_strong_od(
         tasks: problem.tasks.clone(),
         initial_state: problem.initial_state.clone(),
         init_tn: deorder(leaf_node.clone()),
+        rho: problem.rho,
     };
 
     // make initial task network just one abstract task
