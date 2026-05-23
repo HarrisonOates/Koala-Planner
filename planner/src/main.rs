@@ -87,6 +87,10 @@ fn main() {
                 println!("Tiebreaker: {:?}", tiebreaker);
                 htn_andstar_fond(&problem, h_type, tiebreaker)
             }
+            "--fixed-ld" => {
+                println!("Running fixed strong-LD solver");
+                fixed_ld(&problem, heuristic_factory::create_function_with_heuristic(h_type.as_classical_fn()))
+            }
             _ => panic!("Did not recognise flag {}", flag),
         },
         None => ao_star(&problem, h_type),
@@ -151,6 +155,26 @@ fn fixed_method(problem: &FONDProblem, heuristic: heuristic_factory::HeuristicFn
         println!("Solution was found");
         println!("# of policy entries: {}", policy.transitions.len());
         println!("Success probability: {:.4}", policy.success_probability);
+    } else {
+        println!("Problem has no solution");
+    }
+}
+
+fn fixed_ld(problem: &FONDProblem, heuristic: heuristic_factory::HeuristicFn) {
+    use search::fixed_method::goal_checks::is_goal_strong_ld;
+    let (solution, stats) = search::fixed_method::astar::a_star_search(
+        &problem,
+        heuristic,
+        get_successors_systematic,
+        || 1.0,
+        is_goal_strong_ld,
+    );
+    println!("{}", stats);
+    if let AStarResult::Strong(policy) = solution {
+        println!("Solution was found");
+        println!("# of policy entries: {}", policy.transitions.len());
+        println!("Success probability: {:.4}", policy.success_probability);
+        print!("{}", policy);
     } else {
         println!("Problem has no solution");
     }

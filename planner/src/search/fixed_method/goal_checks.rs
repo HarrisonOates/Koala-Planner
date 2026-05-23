@@ -7,8 +7,11 @@ use super::astar::{CustomStatistic, CustomStatistics};
 use super::*;
 use crate::{
     domain_description::FONDProblem,
-    search::{AOStarSearch, HeuristicType, SearchResult},
-    task_network::{Task, HTN},
+    search::{
+        acyclic_plan::{PolicyNode, PolicyOutput, StrongPolicy},
+        AOStarSearch, HeuristicType, SearchResult,
+    },
+    task_network::{Applicability, PrimitiveAction, Task, HTN},
 };
 use std::{
     cell::RefCell,
@@ -82,6 +85,119 @@ pub fn is_goal_strong_od(
         }
         SearchResult::NoSolution => AStarResult::NoSolution,
     }
+}
+
+/// Strong LD ("linear dovetailing") goal check.
+///
+/// Returns `Strong` if the weak linearization produced by A* is a strong plan —
+/// i.e. every action in the fixed sequence is applicable regardless of which
+/// nondeterministic outcomes occurred in all previous steps.
+///
+/// Verification by forward propagation: maintain the set of all reachable states
+/// and check that each primitive action is applicable in every one of them.
+pub fn is_goal_strong_ld(
+    problem: &FONDProblem,
+    leaf_node: Rc<RefCell<SearchNode>>,
+    _custom_statistics: &mut CustomStatistics,
+) -> AStarResult {
+    if !leaf_node.borrow().tn.is_empty() {
+        return AStarResult::NoSolution;
+    }
+
+    struct PathStep {
+        parent_state: HashSet<u32>,
+        parent_tn: HTN,
+        task_name: String,
+        method_name: Option<String>,
+        action: Option<PrimitiveAction>,
+    }
+
+    // Walk from leaf to root, collecting one step per edge.
+    let mut steps: Vec<PathStep> = Vec::new();
+    let mut child = leaf_node.clone();
+    let mut parent = child.borrow().parent.clone();
+
+    while let Some(parent_rc) = parent {
+        {
+            let par = parent_rc.borrow();
+            let edge = par.find_edge(&child);
+            let action: Option<PrimitiveAction> = if edge.method_name.is_none() {
+                let task_cell = par.tn.get_task(edge.task_id);
+                let task_guard = task_cell.borrow();
+                if let Task::Primitive(a) = &*task_guard {
+                    Some(a.clone())
+                } else {
+                    unreachable!("primitive edge must point to a primitive task")
+                }
+            } else {
+                None
+            };
+            steps.push(PathStep {
+                parent_state: par.state.clone(),
+                parent_tn: par.tn.clone(),
+                task_name: edge.task_name.clone(),
+                method_name: edge.method_name.clone(),
+                action,
+            });
+        }
+        child = parent_rc;
+        parent = child.borrow().parent.clone();
+    }
+    steps.reverse(); // root-to-leaf order
+
+    // Forward propagation: track all reachable states (stored as sorted vecs
+    // for deduplication) and check that each primitive is universally applicable.
+    let mut reachable: HashSet<Vec<u32>> = {
+        let mut init: Vec<u32> = problem.initial_state.iter().copied().collect();
+        init.sort();
+        let mut s = HashSet::new();
+        s.insert(init);
+        s
+    };
+
+    for step in &steps {
+        let Some(action) = &step.action else { continue };
+        let mut next: HashSet<Vec<u32>> = HashSet::new();
+        for sv in &reachable {
+            let state: HashSet<u32> = sv.iter().copied().collect();
+            if !action.is_applicable(&state) {
+                return AStarResult::NoSolution;
+            }
+            for ns in action.transition(&state) {
+                let mut nsv: Vec<u32> = ns.into_iter().collect();
+                nsv.sort();
+                next.insert(nsv);
+            }
+        }
+        reachable = next;
+    }
+
+    // All actions applicable in all reachable states — build the linear policy.
+    let transitions = steps
+        .iter()
+        .map(|step| {
+            let state: HashSet<String> = step
+                .parent_state
+                .iter()
+                .map(|&id| problem.facts.get_fact(id).clone())
+                .collect();
+            let pn = PolicyNode {
+                tn: Rc::new(step.parent_tn.clone()),
+                state,
+            };
+            let po = PolicyOutput {
+                task: step.task_name.clone(),
+                method: step.method_name.clone().unwrap_or_else(|| "ε".to_string()),
+            };
+            (pn, po)
+        })
+        .collect();
+
+    AStarResult::Strong(StrongPolicy {
+        transitions,
+        makespan: steps.len() as u16,
+        success_probability: 1.0,
+    })
 }
 
 type NewID = u32; // ID of a task in the new HTN which we are building
