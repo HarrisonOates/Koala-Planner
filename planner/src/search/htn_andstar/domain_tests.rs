@@ -11,7 +11,7 @@
 ///   prob_retry k tokens, p=0.5 → 1 - 0.5^k
 #[cfg(test)]
 mod tests {
-    use super::super::run;
+    use super::super::{run, run_fond};
     use super::super::TiebreakerKind;
     use crate::domain_description::read_json_domain;
     use crate::search::{HeuristicType, SearchResult};
@@ -160,5 +160,45 @@ mod tests {
     #[test]
     fn fond_metro_01() {
         check_fond("test_domains/fond_metro_01.json", HeuristicType::HFF);
+    }
+
+    // ── --andstar-fond (MinCost) ─────────────────────────────────────────────
+    // Min-cost AND* must return a strong plan (prob=1.0) for standard FOND domains.
+
+    fn check_fond_cost(json_path: &str, heuristic: HeuristicType) {
+        let problem = read_json_domain(json_path);
+        let (result, _stats) = run_fond(&problem, heuristic, TiebreakerKind::Combined);
+        match result {
+            SearchResult::Success(policy) => {
+                assert!(
+                    policy.success_probability >= 1.0 - 1e-9,
+                    "{}: expected strong plan from MinCost AND*, got prob={:.9}",
+                    json_path,
+                    policy.success_probability
+                );
+            }
+            SearchResult::NoSolution => {
+                panic!(
+                    "{}: MinCost AND* returned NoSolution — expected a strong plan",
+                    json_path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fond_cost_lights_01() {
+        check_fond_cost("test_domains/fond_lights_01.json", HeuristicType::HFF);
+        check_fond_cost("test_domains/fond_lights_01.json", HeuristicType::HAdd);
+    }
+
+    #[test]
+    fn fond_cost_lights_02() {
+        check_fond_cost("test_domains/fond_lights_02.json", HeuristicType::HFF);
+    }
+
+    #[test]
+    fn fond_cost_metro_01() {
+        check_fond_cost("test_domains/fond_metro_01.json", HeuristicType::HFF);
     }
 }

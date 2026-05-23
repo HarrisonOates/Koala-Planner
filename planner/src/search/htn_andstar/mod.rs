@@ -351,7 +351,9 @@ fn compute_reach_incremental(
 
 /// Admissible lower bound on total plan assignments for MinCost AND*.
 /// f(π) = −(|π| + max{ cost_lower[c] : c ∈ Out_C(π) })
-/// Returns NEG_INFINITY when any frontier compound node is infeasible.
+/// Admissible lower bound on total assignments: -(policy_size + max h at frontier).
+/// INFINITY cost_lower values (heuristic returned no estimate) are ignored — 0 is
+/// admissible and keeps the search complete on domains where h_val overestimates.
 fn fond_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64 {
     if out_c.is_empty() {
         return -(policy_size as f64);
@@ -359,18 +361,9 @@ fn fond_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64
     let h_max = out_c
         .iter()
         .map(|&i| reach[i].cost_lower)
-        .fold(0.0_f64, |acc, c| {
-            if c == f64::INFINITY {
-                f64::INFINITY
-            } else {
-                acc.max(c)
-            }
-        });
-    if h_max == f64::INFINITY {
-        f64::NEG_INFINITY // infeasible frontier — prune
-    } else {
-        -(policy_size as f64 + h_max)
-    }
+        .filter(|&c| c != f64::INFINITY)
+        .fold(0.0_f64, |acc, c| acc.max(c));
+    -(policy_size as f64 + h_max)
 }
 
 /// Returns true iff no Dead node is reachable from reach[0].
@@ -598,13 +591,24 @@ fn run_internal(
 
             let should_prune = match mode {
                 SearchMode::MaxProb => new_f < best_closed_prob.max(problem.rho),
-                SearchMode::MinCost => new_f == f64::NEG_INFINITY,
+                SearchMode::MinCost => false, // fond_f_value never returns NEG_INFINITY
             };
             if should_prune {
                 continue;
             }
 
-            let sig = compute_reach_sig(&new_reach_full, new_f, pi.policy_size + 1);
+            // For deduplication, use a f-value that captures the full reach structure.
+            // fond_f_value depends only on policy_size + h_max, so two states with the
+            // same frontier but different reach graphs would share the same sig and one
+            // would be wrongly deduplicated.  Using VI for the sig key (even in MinCost
+            // mode) gives a structurally accurate proxy.
+            let sig_f = match mode {
+                SearchMode::MaxProb => new_f,
+                SearchMode::MinCost => {
+                    PartialPolicyState::compute_f_by_vi(&new_reach_full)
+                }
+            };
+            let sig = compute_reach_sig(&new_reach_full, sig_f, pi.policy_size + 1);
             if !seen.contains(&sig) {
                 seen.insert(sig);
 
@@ -1214,8 +1218,9 @@ mod tests {
     }
 
     #[test]
-    fn fond_f_value_infeasible_frontier_gives_neg_inf() {
-        // One frontier node has cost_lower = INF → prune
+    fn fond_f_value_infinity_cost_lower_treated_as_zero() {
+        // INFINITY cost_lower (heuristic has no estimate) is filtered out; 0 is used instead.
+        // policy_size=1, out_c=[0], cost_lower=INF → h_max=0 → f = -(1+0) = -1.0
         use super::{NodeKind, ReachNode};
         let reach = vec![ReachNode {
             tn: Rc::new(HTN::new(
@@ -1231,6 +1236,6 @@ mod tests {
             successors: vec![],
         }];
         let f = super::fond_f_value(&reach, &[0], 1);
-        assert_eq!(f, f64::NEG_INFINITY, "expected NEG_INFINITY for infeasible frontier");
+        assert!((f - (-1.0)).abs() < 1e-9, "expected -1.0, got {}", f);
     }
 }
