@@ -29,17 +29,8 @@ impl<'a> GraphPlan<'a> {
         let mut action_placed: Vec<u32> = vec![u32::MAX; n_actions];
         let mut fact_placed: Vec<u32> = vec![u32::MAX; n_facts];
 
-        // Reverse index: fact_id -> action indices that need it as a precondition
-        let mut fact_to_actions: Vec<Vec<usize>> = vec![vec![]; n_facts];
-        let mut precond_remaining: Vec<u32> = vec![0; n_actions];
-        for (i, action) in domain.actions.iter().enumerate() {
-            precond_remaining[i] = action.pre_cond.len() as u32;
-            for &f in action.pre_cond.iter() {
-                if (f as usize) < n_facts {
-                    fact_to_actions[f as usize].push(i);
-                }
-            }
-        }
+        let fact_to_actions = &domain.fact_to_actions;
+        let mut precond_remaining: Vec<u32> = domain.precond_counts.clone();
 
         let mut layer_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
         let mut layer_to_facts: HashMap<u32, Vec<u32>> = HashMap::new();

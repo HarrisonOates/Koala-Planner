@@ -3,23 +3,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
     let n = domain.actions.len();
-
-    // Reverse index: fact_id -> action indices that need it as precondition
-    let mut fact_to_actions: HashMap<u32, Vec<usize>> = HashMap::new();
-    let mut precond_remaining: Vec<u32> = vec![0; n];
+    let fact_to_actions = &domain.fact_to_actions;
+    let mut precond_remaining: Vec<u32> = domain.precond_counts.clone();
     let mut precond_cost_sum: Vec<u32> = vec![0; n];
-    for (i, action) in domain.actions.iter().enumerate() {
-        precond_remaining[i] = action.pre_cond.len() as u32;
-        for &f in action.pre_cond.iter() {
-            fact_to_actions.entry(f).or_default().push(i);
-        }
-    }
 
-    // fact_cost: fact_id -> cost (0 for state facts)
     let mut fact_cost: HashMap<u32, u32> = HashMap::new();
     let mut remaining_goals = goal.len();
 
-    // Seed with state facts at cost 0
     let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
     for &f in state.iter() {
         fact_cost.insert(f, 0);
@@ -50,8 +40,9 @@ pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>
         if remaining_goals == 0 {
             break;
         }
-        if let Some(dependents) = fact_to_actions.get(&fact_id) {
-            for &action_idx in dependents {
+        let f_idx = fact_id as usize;
+        if f_idx < fact_to_actions.len() {
+            for &action_idx in &fact_to_actions[f_idx] {
                 if precond_remaining[action_idx] == 0 {
                     continue; // already fired
                 }

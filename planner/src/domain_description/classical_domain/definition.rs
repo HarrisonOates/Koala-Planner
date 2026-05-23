@@ -9,11 +9,25 @@ use super::Facts;
 pub struct ClassicalDomain {
     pub facts: Facts,
     pub actions: Vec<PrimitiveAction>,
+    pub fact_to_actions: Vec<Vec<usize>>,
+    pub precond_counts: Vec<u32>,
 }
 
 impl ClassicalDomain {
     pub fn new(facts: Facts, actions: Vec<PrimitiveAction>) -> ClassicalDomain {
-        ClassicalDomain { facts, actions }
+        let n_facts = facts.count() as usize;
+        let n_actions = actions.len();
+        let mut fact_to_actions: Vec<Vec<usize>> = vec![vec![]; n_facts];
+        let mut precond_counts: Vec<u32> = vec![0; n_actions];
+        for (i, action) in actions.iter().enumerate() {
+            precond_counts[i] = action.pre_cond.len() as u32;
+            for &f in action.pre_cond.iter() {
+                if (f as usize) < n_facts {
+                    fact_to_actions[f as usize].push(i);
+                }
+            }
+        }
+        ClassicalDomain { facts, actions, fact_to_actions, precond_counts }
     }
 
     pub fn delete_relax(&self) -> ClassicalDomain {
