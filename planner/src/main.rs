@@ -59,13 +59,14 @@ fn main() {
     let h_type: HeuristicType = args
         .iter()
         .find_map(|a| match a.as_str() {
-            "--add" => Some(HeuristicType::HAdd),
-            "--max" => Some(HeuristicType::HMax),
-            "--ff" => Some(HeuristicType::HFF),
-            "--prob" => Some(HeuristicType::HProb),
+            "--add"   => Some(HeuristicType::HAdd),
+            "--max"   => Some(HeuristicType::HMax),
+            "--ff"    => Some(HeuristicType::HFF),
+            "--prob"  => Some(HeuristicType::HProb),
+            "--lmcut" => Some(HeuristicType::HLMCut),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --prob"));
+        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --prob | --lmcut"));
 
     match args.get(2) {
         Some(flag) => match flag.as_str() {

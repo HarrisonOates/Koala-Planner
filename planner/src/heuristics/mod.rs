@@ -8,5 +8,6 @@ pub use structs::TDG;
 pub use classical::{
     h_add,
     h_ff,
+    h_lmcut,
     h_max,
 };

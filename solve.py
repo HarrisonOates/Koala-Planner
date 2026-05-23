@@ -143,7 +143,7 @@ if __name__ == "__main__":
         arg = args[i]
         if arg in ("--fixed", "--flexible", "--andstar", "--andstar-fond", "--fixed-ld"):
             mode_flag = [arg]
-        elif arg in ("--ff", "--add", "--max", "--prob"):
+        elif arg in ("--ff", "--add", "--max", "--prob", "--lmcut"):
             heuristic_flag = [arg]
         elif arg == "--threshold" and i + 1 < len(args):
             threshold_flag = ["--threshold", args[i + 1]]
