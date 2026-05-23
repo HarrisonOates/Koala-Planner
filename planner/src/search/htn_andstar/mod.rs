@@ -11,33 +11,33 @@ use crate::task_network::HTN;
 
 pub use partial_policy::{SearchMode, TiebreakerKind};
 use partial_policy::{
-    compute_reach_sig, delta_nearest_f_value, make_key, MemoKey, NodeKind, PartialPolicyState,
-    PolicyAssignment, PolicyLink, ReachNode, ReachSig,
+    compute_reach_sig, delta_nearest_f_value, make_key, HCache, MemoKey, NodeKind,
+    PartialPolicyState, PolicyAssignment, PolicyLink, ReachNode, ReachSig, ReachView,
 };
 
 use super::progress;
 use super::{
-    ConnectionLabel, HeuristicType, PolicyNode, PolicyOutput, SearchGraphNode, SearchResult,
-    SearchStats, StrongPolicy,
+    ConnectionLabel, HeuristicType, NodeExpansion, PolicyNode, PolicyOutput, SearchGraphNode,
+    SearchResult, SearchStats, StrongPolicy,
 };
 
 // ── Reach-graph construction ───────────────────────────────────────────────
 
-/// Build Reach(π): the set of (tn, state) pairs reachable from
-/// (init_tn, init_state) by following `assignments` at compound nodes
-/// and branching over all outcomes at primitive nodes.
+/// Build Reach(π) for the root (empty) policy: the set of (tn, state) pairs reachable
+/// from (init_tn, init_state).  All nodes with UC ≠ ∅ are Compound (open OR nodes);
+/// nodes with UC = ∅ but applicable primitives are Primitive (auto-executed).
 ///
-/// Returns `(reach, out_c)` where:
+/// Returns `(reach, index_map, out_c)` where:
 /// - `reach[0]` is always the initial node.
 /// - `out_c` holds indices of unassigned compound nodes (Out_C(π)).
 fn compute_reach(
     init_tn: Rc<HTN>,
     init_state: Rc<HashSet<u32>>,
-    assignments: &HashMap<MemoKey, (String, String)>,
     relaxed: &RelaxedComposition,
     bijection: &HashMap<u32, u32>,
     h_type: &HeuristicType,
     mode: SearchMode,
+    h_cache: &mut HCache,
 ) -> (Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
     // reach[i] starts as None and is filled when the node is dequeued.
     let mut reach: Vec<Option<ReachNode>> = Vec::new();
@@ -46,14 +46,15 @@ fn compute_reach(
 
     // Allocate slot 0 for the initial node.
     let init_key = make_key(&init_tn, &init_state);
-    index_map.insert(init_key, 0);
+    index_map.insert(init_key.clone(), 0);
     reach.push(None);
 
-    // BFS queue: (tn, state, pre-allocated reach index).
-    let mut queue: VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize)> = VecDeque::new();
-    queue.push_back((init_tn, init_state, 0));
+    // BFS queue carries the canonical (tn, state) key so we can look up the
+    // heuristic cache at the Compound-node branch without recomputing make_key.
+    let mut queue: VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize, MemoKey)> = VecDeque::new();
+    queue.push_back((init_tn, init_state, 0, init_key));
 
-    while let Some((tn, state, node_idx)) = queue.pop_front() {
+    while let Some((tn, state, node_idx, node_key)) = queue.pop_front() {
         // ── Goal ──────────────────────────────────────────────────────────
         if tn.is_empty() {
             reach[node_idx] = Some(ReachNode {
@@ -84,50 +85,21 @@ fn compute_reach(
             continue;
         }
 
-        // Primitive-eager: if ANY unconstrained task is an applicable primitive, execute
-        // it before assigning methods to concurrent compound tasks.  This ensures method
-        // assignments always happen in a state where no concurrent primitives are pending,
-        // giving a correct strong policy for partially-ordered task networks.
-        // progress() lists primitives before decompositions, so `find` below returns the
-        // lowest-BTreeSet-ID primitive — a fixed, consistent linearisation for the executor.
-        let first_primitive = expansions
+        // Algorithm 3 (Holler et al.): if UC ≠ ∅ (any decomposition exists), this is a
+        // Compound (open OR) node — the policy will assign one connector (method or
+        // primitive action) to it.  Only when UC = ∅ do we auto-execute an applicable
+        // primitive (no policy choice needed, no heuristic call).
+        //
+        // This avoids the exponential O(M^N) Primitive-node chains that primitive-eager
+        // creates for N concurrent non-det primitives with M outcomes each.
+        let has_decomposition = expansions
             .iter()
-            .find(|e| !e.connection_label.is_decomposition());
+            .any(|e| e.connection_label.is_decomposition());
 
-        if let Some(prim_expansion) = first_primitive {
-            // ── Primitive (or mixed primitive+compound) — execute primitive first ──
-            let mut successors: Vec<(usize, f64)> = Vec::new();
-            for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
-                let p = prim_expansion
-                    .outcome_probabilities
-                    .get(i)
-                    .copied()
-                    .unwrap_or(1.0);
-                let succ_key = make_key(&prim_expansion.tn, outcome_state);
-                let succ_idx = get_or_insert(
-                    succ_key,
-                    &mut index_map,
-                    &mut reach,
-                    &mut queue,
-                    prim_expansion.tn.clone(),
-                    outcome_state.clone(),
-                );
-                successors.push((succ_idx, p));
-            }
-            reach[node_idx] = Some(ReachNode {
-                tn,
-                state,
-                kind: NodeKind::Primitive,
-                prob_upper: 1.0,
-                cost_lower: 0.0,
-                successors,
-                landmarks: vec![],
-            });
-        } else {
-            // ── Compound: all unconstrained tasks are compound ────────────────
-            let key = make_key(&tn, &state);
-            let (h, landmarks) = SearchGraphNode::h_val_with_landmarks(
-                tn.as_ref(), state.as_ref(), relaxed, bijection, h_type,
+        if has_decomposition {
+            // ── UC ≠ ∅ — open OR node; policy assigns a connector (method or primitive) ──
+            let (h, landmarks) = lookup_or_compute_h(
+                &node_key, tn.as_ref(), state.as_ref(), relaxed, bijection, h_type, h_cache,
             );
             let (prob_upper, cost_lower) = match mode {
                 SearchMode::MinCost => {
@@ -137,57 +109,48 @@ fn compute_reach(
                 }
                 SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
             };
-
-            if let Some((task_name, method_name)) = assignments.get(&key) {
-                // Assigned: follow the chosen method.
-                let matching = expansions.iter().find(|e| match &e.connection_label {
-                    ConnectionLabel::Decomposition(t, m) => t == task_name && m == method_name,
-                    _ => false,
-                });
-
-                if let Some(decomp) = matching {
-                    let succ_key = make_key(&decomp.tn, &state);
+            reach[node_idx] = Some(ReachNode {
+                tn,
+                state,
+                kind: NodeKind::Compound,
+                prob_upper,
+                cost_lower,
+                successors: vec![],
+                landmarks,
+            });
+            out_c.push(node_idx);
+        } else {
+            // ── UC = ∅ — only applicable primitives; auto-execute first one ──
+            // progress() lists primitives before decompositions and in BTreeSet-ID order,
+            // giving a fixed, consistent linearisation.
+            if let Some(prim_expansion) = expansions.first() {
+                let mut successors: Vec<(usize, f64)> = Vec::new();
+                for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                    let p = prim_expansion
+                        .outcome_probabilities
+                        .get(i)
+                        .copied()
+                        .unwrap_or(1.0);
+                    let succ_key = make_key(&prim_expansion.tn, outcome_state);
                     let succ_idx = get_or_insert(
                         succ_key,
                         &mut index_map,
                         &mut reach,
                         &mut queue,
-                        decomp.tn.clone(),
-                        state.clone(),
+                        prim_expansion.tn.clone(),
+                        outcome_state.clone(),
                     );
-                    reach[node_idx] = Some(ReachNode {
-                        tn,
-                        state,
-                        kind: NodeKind::Assigned,
-                        prob_upper,
-                        cost_lower,
-                        successors: vec![(succ_idx, 1.0)],
-                        landmarks: vec![],
-                    });
-                } else {
-                    // Assigned method not found — treat as dead end.
-                    reach[node_idx] = Some(ReachNode {
-                        tn,
-                        state,
-                        kind: NodeKind::Dead,
-                        prob_upper: 0.0,
-                        cost_lower: 0.0,
-                        successors: vec![],
-                        landmarks: vec![],
-                    });
+                    successors.push((succ_idx, p));
                 }
-            } else {
-                // Unassigned: add to Out_C.
                 reach[node_idx] = Some(ReachNode {
                     tn,
                     state,
-                    kind: NodeKind::Compound,
-                    prob_upper,
-                    cost_lower,
-                    successors: vec![],
-                    landmarks,
+                    kind: NodeKind::Primitive,
+                    prob_upper: 1.0,
+                    cost_lower: 0.0,
+                    successors,
+                    landmarks: vec![],
                 });
-                out_c.push(node_idx);
             }
         }
     }
@@ -202,7 +165,7 @@ fn get_or_insert(
     key: MemoKey,
     index_map: &mut HashMap<MemoKey, usize>,
     reach: &mut Vec<Option<ReachNode>>,
-    queue: &mut VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize)>,
+    queue: &mut VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize, MemoKey)>,
     tn: Rc<HTN>,
     state: Rc<HashSet<u32>>,
 ) -> usize {
@@ -210,11 +173,33 @@ fn get_or_insert(
         idx // already allocated — back-edge or convergence
     } else {
         let idx = reach.len();
-        index_map.insert(key, idx);
+        index_map.insert(key.clone(), idx);
         reach.push(None); // placeholder filled when dequeued
-        queue.push_back((tn, state, idx));
+        queue.push_back((tn, state, idx, key));
         idx
     }
+}
+
+/// Look up the heuristic value + landmarks for `(tn, state)` in the cache;
+/// on a miss compute via `h_val_with_landmarks` and insert. The cache is
+/// shared across all partial policies in a search run, so the same
+/// `(tn, state)` Compound node never recomputes its heuristic.
+fn lookup_or_compute_h(
+    key: &MemoKey,
+    tn: &HTN,
+    state: &HashSet<u32>,
+    relaxed: &RelaxedComposition,
+    bijection: &HashMap<u32, u32>,
+    h_type: &HeuristicType,
+    h_cache: &mut HCache,
+) -> (f32, crate::heuristics::LandmarkCuts) {
+    if let Some(cached) = h_cache.get(key) {
+        return cached.clone();
+    }
+    let computed =
+        SearchGraphNode::h_val_with_landmarks(tn, state, relaxed, bijection, h_type);
+    h_cache.insert(key.clone(), computed.clone());
+    computed
 }
 
 // ── Incremental reach-graph extension ─────────────────────────────────────
@@ -223,7 +208,7 @@ fn get_or_insert(
 /// `parent_reach`) to the method whose decomposed TN is `expansion_tn`.
 ///
 /// All nodes already in `parent_reach` are copied unchanged; only the
-/// newly reachable portion (from `expansion_tn` onwards) is BFS-explored.
+/// newly reachable portion (from `connector` onwards) is BFS-explored.
 /// Back-edges into already-known nodes are detected via `parent_index_map`.
 ///
 /// `parent_out_c[0]` must equal `node_idx` (the node being assigned).
@@ -234,44 +219,63 @@ fn compute_reach_incremental(
     parent_index_map: &HashMap<MemoKey, usize>,
     parent_out_c: &[usize],
     node_idx: usize,
-    expansion_tn: Rc<HTN>,
-    node_state: Rc<HashSet<u32>>,
+    connector: &NodeExpansion,
+    _node_state: Rc<HashSet<u32>>,
     relaxed: &RelaxedComposition,
     bijection: &HashMap<u32, u32>,
     h_type: &HeuristicType,
     mode: SearchMode,
     method_action_idx: Option<usize>,
-) -> (Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
-    // Clone the full parent graph — already-explored nodes cost one clone
-    // instead of a full BFS re-traversal.
-    let mut reach: Vec<Option<ReachNode>> = parent_reach.iter().cloned().map(Some).collect();
-    let mut index_map = parent_index_map.clone();
+    h_cache: &mut HCache,
+) -> (ReachNode, Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
+    // No clone of the parent reach — only the modified node and the newly
+    // discovered tail (extension) are materialised. Downstream consumers read
+    // the virtual reach via ReachView::Incremental { parent, modified, extension }.
+    let parent_len = parent_reach.len();
+    let mut modified: ReachNode = parent_reach[node_idx].clone();
+    let mut extension: Vec<Option<ReachNode>> = Vec::new();
+    let mut index_map = HashMap::with_capacity(parent_index_map.len() + 16);
+    index_map.clone_from(parent_index_map);
     // Carry over remaining unresolved compound nodes (skip node_idx at [0]).
     let mut out_c: Vec<usize> = parent_out_c[1..].to_vec();
 
-    // Allocate / find the successor node produced by the method body.
-    let mut queue: VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize)> = VecDeque::new();
-    let succ_key = make_key(&expansion_tn, &node_state);
-    let succ_idx = get_or_insert(
-        succ_key,
-        &mut index_map,
-        &mut reach,
-        &mut queue,
-        expansion_tn,
-        node_state.clone(),
-    );
-
-    // Flip the node from Compound to Assigned, pointing at its successor.
-    if let Some(ref mut node) = reach[node_idx] {
-        node.kind = NodeKind::Assigned;
-        node.successors = vec![(succ_idx, 1.0)];
+    // Allocate / find the successor node(s) produced by the connector.
+    // For decomposition connectors: one deterministic successor (connector.states[0] == node_state).
+    // For primitive connectors: one successor per non-det outcome.
+    let mut queue: VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize, MemoKey)> = VecDeque::new();
+    let mut successors: Vec<(usize, f64)> = Vec::new();
+    for (i, outcome_state) in connector.states.iter().enumerate() {
+        let p = connector.outcome_probabilities.get(i).copied().unwrap_or(1.0);
+        let sk = make_key(&connector.tn, outcome_state);
+        let si = get_or_insert_ext(
+            sk,
+            &mut index_map,
+            &mut extension,
+            &mut queue,
+            connector.tn.clone(),
+            outcome_state.clone(),
+            parent_len,
+        );
+        successors.push((si, p));
     }
+    // First successor index is used by the LM-cut warm-start check below.
+    // For decomposition connectors (single outcome) this is the only successor.
+    let first_succ_idx = successors.first().map(|(i, _)| *i).unwrap_or(0);
+
+    // Flip the node from Compound to Assigned, recording all outcome successors.
+    modified.kind = NodeKind::Assigned;
+    modified.successors = successors;
 
     // BFS only over newly enqueued nodes — the index_map prevents
     // re-entering any node already present in parent_reach.
-    while let Some((tn, state, n_idx)) = queue.pop_front() {
+    // Every dequeued node has `n_idx >= parent_len` (back-edges into the
+    // parent are handled inline by `get_or_insert_ext`), so it always lands in
+    // `extension[n_idx - parent_len]`.
+    let is_decomp = connector.connection_label.is_decomposition();
+    while let Some((tn, state, n_idx, node_key)) = queue.pop_front() {
+        let ext_idx = n_idx - parent_len;
         if tn.is_empty() {
-            reach[n_idx] = Some(ReachNode {
+            extension[ext_idx] = Some(ReachNode {
                 tn,
                 state,
                 kind: NodeKind::Goal,
@@ -286,7 +290,7 @@ fn compute_reach_incremental(
         let expansions = progress(tn.clone(), state.clone());
 
         if expansions.is_empty() {
-            reach[n_idx] = Some(ReachNode {
+            extension[ext_idx] = Some(ReachNode {
                 tn,
                 state,
                 kind: NodeKind::Dead,
@@ -298,59 +302,39 @@ fn compute_reach_incremental(
             continue;
         }
 
-        // Primitive-eager: same semantics as compute_reach — primitives before compounds.
-        let first_primitive = expansions
+        // Algorithm 3: UC ≠ ∅ → Compound (open OR node); UC = ∅ → Primitive (auto-execute).
+        let has_decomposition = expansions
             .iter()
-            .find(|e| !e.connection_label.is_decomposition());
+            .any(|e| e.connection_label.is_decomposition());
 
-        if let Some(prim_expansion) = first_primitive {
-            let mut successors: Vec<(usize, f64)> = Vec::new();
-            for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
-                let p = prim_expansion
-                    .outcome_probabilities
-                    .get(i)
-                    .copied()
-                    .unwrap_or(1.0);
-                let sk = make_key(&prim_expansion.tn, outcome_state);
-                let si = get_or_insert(
-                    sk,
-                    &mut index_map,
-                    &mut reach,
-                    &mut queue,
-                    prim_expansion.tn.clone(),
-                    outcome_state.clone(),
-                );
-                successors.push((si, p));
-            }
-            reach[n_idx] = Some(ReachNode {
-                tn,
-                state,
-                kind: NodeKind::Primitive,
-                prob_upper: 1.0,
-                cost_lower: 0.0,
-                successors,
-                landmarks: vec![],
-            });
-        } else {
-            // All unconstrained tasks are compound — newly discovered, so always Compound.
-            // If this is the direct successor of the assigned node (no primitives intervened)
-            // and we're using LM-cut, warm-start from the parent's landmark cuts.
-            let (h, landmarks) = if matches!(h_type, HeuristicType::HLMCut)
-                && n_idx == succ_idx
-                && method_action_idx.is_some()
-            {
-                SearchGraphNode::h_val_lmcut_incremental(
-                    tn.as_ref(),
-                    state.as_ref(),
-                    relaxed,
-                    bijection,
-                    &parent_reach[node_idx].landmarks,
-                    method_action_idx.unwrap(),
-                )
+        if has_decomposition {
+            // UC ≠ ∅ — open OR node.
+            // First consult the heuristic cache; on hit reuse, on miss either
+            // warm-start (LM-cut on the direct compound successor of a
+            // decomposition) or do a full h_val_with_landmarks computation.
+            let (h, landmarks) = if let Some(cached) = h_cache.get(&node_key) {
+                cached.clone()
             } else {
-                SearchGraphNode::h_val_with_landmarks(
-                    tn.as_ref(), state.as_ref(), relaxed, bijection, h_type,
-                )
+                let computed = if matches!(h_type, HeuristicType::HLMCut)
+                    && is_decomp
+                    && n_idx == first_succ_idx
+                    && method_action_idx.is_some()
+                {
+                    SearchGraphNode::h_val_lmcut_incremental(
+                        tn.as_ref(),
+                        state.as_ref(),
+                        relaxed,
+                        bijection,
+                        &parent_reach[node_idx].landmarks,
+                        method_action_idx.unwrap(),
+                    )
+                } else {
+                    SearchGraphNode::h_val_with_landmarks(
+                        tn.as_ref(), state.as_ref(), relaxed, bijection, h_type,
+                    )
+                };
+                h_cache.insert(node_key.clone(), computed.clone());
+                computed
             };
             let (prob_upper, cost_lower) = match mode {
                 SearchMode::MinCost => {
@@ -360,7 +344,7 @@ fn compute_reach_incremental(
                 }
                 SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
             };
-            reach[n_idx] = Some(ReachNode {
+            extension[ext_idx] = Some(ReachNode {
                 tn,
                 state,
                 kind: NodeKind::Compound,
@@ -370,11 +354,65 @@ fn compute_reach_incremental(
                 landmarks,
             });
             out_c.push(n_idx);
+        } else {
+            // UC = ∅ — auto-execute first applicable primitive.
+            if let Some(prim_expansion) = expansions.first() {
+                let mut prim_successors: Vec<(usize, f64)> = Vec::new();
+                for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                    let p = prim_expansion
+                        .outcome_probabilities
+                        .get(i)
+                        .copied()
+                        .unwrap_or(1.0);
+                    let sk = make_key(&prim_expansion.tn, outcome_state);
+                    let si = get_or_insert_ext(
+                        sk,
+                        &mut index_map,
+                        &mut extension,
+                        &mut queue,
+                        prim_expansion.tn.clone(),
+                        outcome_state.clone(),
+                        parent_len,
+                    );
+                    prim_successors.push((si, p));
+                }
+                extension[ext_idx] = Some(ReachNode {
+                    tn,
+                    state,
+                    kind: NodeKind::Primitive,
+                    prob_upper: 1.0,
+                    cost_lower: 0.0,
+                    successors: prim_successors,
+                    landmarks: vec![],
+                });
+            }
         }
     }
 
-    let reach = reach.into_iter().map(|n| n.unwrap()).collect();
-    (reach, index_map, out_c)
+    let extension: Vec<ReachNode> = extension.into_iter().map(|n| n.unwrap()).collect();
+    (modified, extension, index_map, out_c)
+}
+
+/// Like `get_or_insert`, but maintains a sparse `extension` Vec of `Option<ReachNode>`
+/// indexed from `parent_len`. Existing parent-side hits (idx < parent_len) return
+/// immediately without touching `extension`.
+fn get_or_insert_ext(
+    key: MemoKey,
+    index_map: &mut HashMap<MemoKey, usize>,
+    extension: &mut Vec<Option<ReachNode>>,
+    queue: &mut VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize, MemoKey)>,
+    tn: Rc<HTN>,
+    state: Rc<HashSet<u32>>,
+    parent_len: usize,
+) -> usize {
+    if let Some(&idx) = index_map.get(&key) {
+        return idx; // back-edge into parent reach or earlier extension slot
+    }
+    let idx = parent_len + extension.len();
+    index_map.insert(key.clone(), idx);
+    extension.push(None); // placeholder filled when dequeued
+    queue.push_back((tn, state, idx, key));
+    idx
 }
 
 // ── MinCost helpers ─────────────────────────────────────────────────────────
@@ -382,18 +420,20 @@ fn compute_reach_incremental(
 /// Admissible lower bound on total plan assignments for MinCost AND*.
 /// Returns true iff no Dead node is reachable from reach[0].
 /// A closed FOND policy with a reachable Dead node is not a valid strong plan.
-fn is_reach_proper(reach: &[ReachNode]) -> bool {
-    let mut visited = vec![false; reach.len()];
+fn is_reach_proper(view: &ReachView<'_>) -> bool {
+    let n = view.len();
+    let mut visited = vec![false; n];
     let mut stack = vec![0usize];
     while let Some(idx) = stack.pop() {
         if visited[idx] {
             continue;
         }
         visited[idx] = true;
-        if matches!(reach[idx].kind, NodeKind::Dead) {
+        let node = view.get(idx);
+        if matches!(node.kind, NodeKind::Dead) {
             return false;
         }
-        for &(succ, _) in &reach[idx].successors {
+        for &(succ, _) in &node.successors {
             if !visited[succ] {
                 stack.push(succ);
             }
@@ -435,22 +475,28 @@ fn run_internal(
     let (outcome_det, bijection) = OutcomeDeterminizer::from_fond_problem(problem);
     let relaxed = RelaxedComposition::new(&outcome_det);
 
-    // Build the initial empty partial policy π_I.
-    let empty_assignments: HashMap<MemoKey, (String, String)> = HashMap::new();
+    // Per-search heuristic cache shared across all partial policies:
+    // every (canonical TN, canonical state) Compound node hits this cache,
+    // closing AND*'s biggest per-successor cost gap vs the single-graph AO*.
+    let mut h_cache: HCache = HashMap::new();
+
+    // Build the initial (empty) partial policy π_I.
     let (init_reach, _init_index_map, init_out_c) = compute_reach(
         Rc::new(problem.init_tn.clone()),
         Rc::new(problem.initial_state.clone()),
-        &empty_assignments,
         &relaxed,
         &bijection,
         &h_type,
         mode,
+        &mut h_cache,
     );
+    let init_view = ReachView::Full(&init_reach);
     let f_value = match mode {
-        SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&init_reach),
-        SearchMode::MinCost => delta_nearest_f_value(&init_reach, &init_out_c, 0),
+        SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&init_view),
+        SearchMode::MinCost => delta_nearest_f_value(&init_view, &init_out_c, 0),
     };
-    let init_sig = compute_reach_sig(&init_reach, f_value, 0);
+    let init_sig = compute_reach_sig(&init_view, f_value, 0);
+    drop(init_view);
 
     // Root state: no parent, so base_reach is empty; full reach lives in extension.
     let mut next_id: u64 = 0;
@@ -536,7 +582,7 @@ fn run_internal(
                 }
                 SearchMode::MinCost => {
                     let reach = pi.reconstruct_reach();
-                    if is_reach_proper(&reach) {
+                    if is_reach_proper(&ReachView::Full(&reach)) {
                         best_closed_prob = 1.0;
                         best_closed_policy = Some(pi);
                         eprintln!(
@@ -566,65 +612,73 @@ fn run_internal(
         let node_idx = pi.out_c[0];
         let node_tn = reach_rc[node_idx].tn.clone();
         let node_state = reach_rc[node_idx].state.clone();
-        let parent_len = reach_rc.len();
 
+        // Algorithm 3: try ALL connectors from progress() — both compound decompositions
+        // and primitive executions.  Each is a candidate assignment for the OR node at
+        // out_c[0].
         let expansions = progress(node_tn.clone(), node_state.clone());
-
-        let decomposition_expansions: Vec<_> = expansions
-            .iter()
-            .filter(|e| e.connection_label.is_decomposition())
-            .collect();
-        let total_decompositions = decomposition_expansions.len();
+        let total_connectors = expansions.len();
         let mut last_heartbeat = Instant::now();
 
-        for (decomp_i, expansion) in decomposition_expansions.into_iter().enumerate() {
+        for (conn_i, expansion) in expansions.iter().enumerate() {
             if last_heartbeat.elapsed() >= Duration::from_secs(2) {
                 eprintln!(
                     "[AND*] explored={} | expanding {}/{} | open={} | elapsed={:.1}s",
                     explored,
-                    decomp_i + 1,
-                    total_decompositions,
+                    conn_i + 1,
+                    total_connectors,
                     open.len(),
                     start_time.elapsed().as_secs_f64()
                 );
                 last_heartbeat = Instant::now();
             }
-            let (task_name, method_name) = match &expansion.connection_label {
-                ConnectionLabel::Decomposition(t, m) => (t.clone(), m.clone()),
-                _ => unreachable!(),
-            };
 
-            // For LM-cut: find the classical action index of this method so the
-            // incremental warm-start can drop landmark cuts that contain it.
+            // For LM-cut: find the classical action index so the incremental
+            // warm-start can drop landmark cuts that contain it.
             let method_action_idx = if matches!(h_type, HeuristicType::HLMCut) {
-                relaxed.domain.actions.iter().position(|a| a.name == method_name)
+                let name = match &expansion.connection_label {
+                    ConnectionLabel::Decomposition(_, m) => m.as_str(),
+                    ConnectionLabel::Execution(a, _) => a.as_str(),
+                };
+                relaxed.domain.actions.iter().position(|a| a.name == name)
             } else {
                 None
             };
 
-            let (new_reach_full, _new_index_map, new_out_c) = compute_reach_incremental(
-                &reach_rc,
-                &index_map,
-                &pi.out_c,
-                node_idx,
-                expansion.tn.clone(),
-                node_state.clone(),
-                &relaxed,
-                &bijection,
-                &h_type,
-                mode,
-                method_action_idx,
-            );
+            let (modified_node, extension, _new_index_map, new_out_c) =
+                compute_reach_incremental(
+                    &reach_rc,
+                    &index_map,
+                    &pi.out_c,
+                    node_idx,
+                    expansion,
+                    node_state.clone(),
+                    &relaxed,
+                    &bijection,
+                    &h_type,
+                    mode,
+                    method_action_idx,
+                    &mut h_cache,
+                );
+            // View the parent reach + modified node + extension as a single
+            // virtual reach for the f-value / signature / properness checks,
+            // without ever materialising a full Vec<ReachNode>.
+            let new_view = ReachView::Incremental {
+                parent: &reach_rc,
+                modified_idx: node_idx,
+                modified: &modified_node,
+                extension: &extension,
+            };
             // ── Early deadlock detection (MinCost only) ──────────────────────
             // If any Dead node is already reachable through the resolved reach,
             // no extension of Out_C can fix it — prune immediately.
-            if mode == SearchMode::MinCost && !is_reach_proper(&new_reach_full) {
+            if mode == SearchMode::MinCost && !is_reach_proper(&new_view) {
                 continue;
             }
             let new_f = match mode {
-                SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_reach_full),
+                SearchMode::MaxProb => PartialPolicyState::compute_f_by_vi(&new_view),
                 SearchMode::MinCost => {
-                    delta_nearest_f_value(&new_reach_full, &new_out_c, pi.policy_size + 1)
+                    delta_nearest_f_value(&new_view, &new_out_c, pi.policy_size + 1)
                 }
             };
 
@@ -636,33 +690,25 @@ fn run_internal(
                 continue;
             }
 
-            // For deduplication, use a f-value that captures the full reach structure.
-            // delta_nearest depends on all compound h-values but may still alias different
-            // reach graphs.  Using VI for the sig key (even in MinCost mode) gives a
-            // structurally accurate proxy.
-            let sig_f = match mode {
-                SearchMode::MaxProb => new_f,
-                SearchMode::MinCost => {
-                    PartialPolicyState::compute_f_by_vi(&new_reach_full)
-                }
-            };
-            let sig = compute_reach_sig(&new_reach_full, sig_f, pi.policy_size + 1);
+            // Signature f-value for deduplication.
+            // MaxProb: use the VI probability (already computed as new_f).
+            // MinCost (FOND): use delta_nearest directly — the reach graph topology
+            // (compound node states + TN structures in compute_reach_sig) already
+            // fully distinguishes reach graphs. VI is binary-valued in FOND and adds
+            // no extra discrimination, and the reference implementation (Messa &
+            // Pereira) uses only structural state IDs, not VI values, for signatures.
+            let sig_f = new_f;
+            let sig = compute_reach_sig(&new_view, sig_f, pi.policy_size + 1);
+            drop(new_view);
             if !seen.contains(&sig) {
                 seen.insert(sig);
-
-                // Extract delta: the modified node and any new extension nodes.
-                // These are the only parts NOT shared with the parent's reach_rc.
-                let modified_node = new_reach_full[node_idx].clone();
-                let extension: Vec<ReachNode> = new_reach_full[parent_len..].to_vec();
-                drop(new_reach_full); // full reach no longer needed
 
                 let new_link = Rc::new(PolicyLink {
                     parent: pi.policy_tail.clone(),
                     assignment: PolicyAssignment {
                         tn_snapshot: node_tn.clone(),
                         state: node_state.clone(),
-                        task_name,
-                        method_name,
+                        label: expansion.connection_label.clone(),
                     },
                 });
                 open.push(PartialPolicyState {
@@ -686,40 +732,32 @@ fn run_internal(
     // Return the best closed policy found (if any and above threshold).
     if let Some(best_pi) = best_closed_policy {
         if best_closed_prob >= problem.rho {
-            let mut assignments: Vec<(Rc<HTN>, Rc<HashSet<u32>>, String, String)> = vec![];
+            let mut transitions: Vec<(PolicyNode, PolicyOutput)> = vec![];
             let mut cur = best_pi.policy_tail.as_ref();
             while let Some(link) = cur {
                 let a = &link.assignment;
-                assignments.push((
-                    a.tn_snapshot.clone(),
-                    a.state.clone(),
-                    a.task_name.clone(),
-                    a.method_name.clone(),
+                let state_strings: HashSet<String> = a
+                    .state
+                    .iter()
+                    .map(|id| problem.facts.get_fact(*id).clone())
+                    .collect();
+                let (task, method) = match &a.label {
+                    ConnectionLabel::Decomposition(t, m) => (t.clone(), m.clone()),
+                    ConnectionLabel::Execution(action, _) => (action.clone(), String::new()),
+                };
+                transitions.push((
+                    PolicyNode {
+                        tn: a.tn_snapshot.clone(),
+                        state: state_strings,
+                    },
+                    PolicyOutput { task, method },
                 ));
                 cur = link.parent.as_ref();
             }
-            let transitions: Vec<(PolicyNode, PolicyOutput)> = assignments
-                .iter()
-                .map(|(tn, state, task_name, method_name)| {
-                    let state_strings: HashSet<String> = state
-                        .iter()
-                        .map(|id| problem.facts.get_fact(*id).clone())
-                        .collect();
-                    (
-                        PolicyNode {
-                            tn: tn.clone(),
-                            state: state_strings,
-                        },
-                        PolicyOutput {
-                            task: task_name.clone(),
-                            method: method_name.clone(),
-                        },
-                    )
-                })
-                .collect();
+            let makespan = transitions.len() as u16;
             let policy = StrongPolicy {
                 transitions,
-                makespan: assignments.len() as u16,
+                makespan,
                 success_probability: best_closed_prob,
             };
             return (
@@ -1218,7 +1256,7 @@ mod tests {
     #[test]
     fn delta_nearest_closed_policy_cost() {
         // Closed policy (out_c empty) with 3 assignments → f = -(3) = -3
-        let f = super::delta_nearest_f_value(&[], &[], 3);
+        let f = super::delta_nearest_f_value(&super::ReachView::Full(&[]), &[], 3);
         assert!((f - (-3.0)).abs() < 1e-9, "expected -3.0, got {}", f);
     }
 
@@ -1255,7 +1293,7 @@ mod tests {
                 landmarks: vec![],
             },
         ];
-        let f = super::delta_nearest_f_value(&reach, &[0, 1], 3);
+        let f = super::delta_nearest_f_value(&super::ReachView::Full(&reach), &[0, 1], 3);
         assert!((f - (-6.0)).abs() < 1e-9, "expected -6.0, got {}", f);
     }
 
@@ -1278,7 +1316,7 @@ mod tests {
             successors: vec![],
             landmarks: vec![],
         }];
-        let f = super::delta_nearest_f_value(&reach, &[0], 1);
+        let f = super::delta_nearest_f_value(&super::ReachView::Full(&reach), &[0], 1);
         assert!((f - (-2.0)).abs() < 1e-9, "expected -2.0, got {}", f);
     }
 }

@@ -1,7 +1,8 @@
 use crate::heuristics::LandmarkCuts;
+use crate::search::progression::ConnectionLabel;
 use crate::task_network::HTN;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 // ── MemoKey types (shared with mod.rs) ────────────────────────────────────────
@@ -16,6 +17,82 @@ pub struct TnKey {
 pub struct StateKey(pub Vec<u32>);
 
 pub type MemoKey = (TnKey, StateKey);
+
+/// Cache of heuristic values keyed by `(canonical TN, canonical state)`.
+/// Shared across all partial policies in a single search run so the same
+/// `(tn, state)` Compound node never re-computes its heuristic — closing
+/// the gap with AO*, which by construction computes each h-value once.
+pub type HCache = HashMap<MemoKey, (f32, LandmarkCuts)>;
+
+/// Read-only view of a reach graph built from a parent reach plus a single
+/// modified node plus a tail of newly discovered nodes. Lets f-value /
+/// signature / properness checks read each generated successor *without*
+/// materialising the full `Vec<ReachNode>`.
+///
+/// `Full` is the simple variant used for the root reach (no parent).
+pub enum ReachView<'a> {
+    Full(&'a [ReachNode]),
+    Incremental {
+        parent: &'a [ReachNode],
+        modified_idx: usize,
+        modified: &'a ReachNode,
+        extension: &'a [ReachNode],
+    },
+}
+
+impl<'a> ReachView<'a> {
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            ReachView::Full(r) => r.len(),
+            ReachView::Incremental {
+                parent, extension, ..
+            } => parent.len() + extension.len(),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, idx: usize) -> &'a ReachNode {
+        match self {
+            ReachView::Full(r) => &r[idx],
+            ReachView::Incremental {
+                parent,
+                modified_idx,
+                modified,
+                extension,
+            } => {
+                if idx == *modified_idx {
+                    modified
+                } else if idx < parent.len() {
+                    &parent[idx]
+                } else {
+                    &extension[idx - parent.len()]
+                }
+            }
+        }
+    }
+
+    pub fn iter(&self) -> ReachViewIter<'a, '_> {
+        ReachViewIter { view: self, idx: 0 }
+    }
+}
+
+pub struct ReachViewIter<'a, 'b> {
+    view: &'b ReachView<'a>,
+    idx: usize,
+}
+
+impl<'a, 'b> Iterator for ReachViewIter<'a, 'b> {
+    type Item = &'a ReachNode;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx >= self.view.len() {
+            return None;
+        }
+        let n = self.view.get(self.idx);
+        self.idx += 1;
+        Some(n)
+    }
+}
 
 pub fn make_key(tn: &HTN, state: &HashSet<u32>) -> MemoKey {
     let mappings: BTreeMap<u32, u32> = tn.mappings.iter().map(|(&k, &v)| (k, v)).collect();
@@ -101,8 +178,7 @@ pub struct ReachNode {
 pub struct PolicyAssignment {
     pub tn_snapshot: Rc<HTN>,
     pub state: Rc<HashSet<u32>>,
-    pub task_name: String,
-    pub method_name: String,
+    pub label: ConnectionLabel,
 }
 
 /// Persistent (shared) linked list of policy assignments.
@@ -181,20 +257,19 @@ impl PartialPolicyState {
     /// Initialises non-fixed nodes at 0.0 (pessimistic) and iterates
     /// until |ΔV| < 1e-12, giving the MaxProb-correct value for both
     /// acyclic and cyclic reach graphs.
-    pub fn compute_f_by_vi(reach: &[ReachNode]) -> f64 {
-        let n = reach.len();
+    pub fn compute_f_by_vi(view: &ReachView<'_>) -> f64 {
+        let n = view.len();
         if n == 0 {
             return 1.0; // empty problem — trivially solved
         }
 
         // Initialise value vector.
-        let mut v: Vec<f64> = reach
-            .iter()
-            .map(|node| match node.kind {
+        let mut v: Vec<f64> = (0..n)
+            .map(|i| match view.get(i).kind {
                 NodeKind::Goal => 1.0,
                 NodeKind::Dead => 0.0,
-                NodeKind::Compound => node.prob_upper, // pinned
-                _ => 0.0,                              // pessimistic init
+                NodeKind::Compound => view.get(i).prob_upper, // pinned
+                _ => 0.0,                                     // pessimistic init
             })
             .collect();
 
@@ -204,12 +279,13 @@ impl PartialPolicyState {
         for _ in 0..MAX_ITERS {
             let mut delta = 0.0_f64;
             for i in 0..n {
-                match reach[i].kind {
+                let node_i = view.get(i);
+                match node_i.kind {
                     // Fixed-value nodes — skip.
                     NodeKind::Goal | NodeKind::Dead | NodeKind::Compound => continue,
                     _ => {}
                 }
-                let new_v: f64 = reach[i].successors.iter().map(|&(j, p)| p * v[j]).sum();
+                let new_v: f64 = node_i.successors.iter().map(|&(j, p)| p * v[j]).sum();
                 let diff = (new_v - v[i]).abs();
                 if diff > delta {
                     delta = diff;
@@ -232,7 +308,7 @@ impl PartialPolicyState {
 /// Implements the "delta-nearest" estimate from Messa & Pereira (2403.19883):
 /// collect cost_lower from all Assigned and Compound(Out_C) nodes, sort desc,
 /// then delta = max(h[i] + i).  Returns -max(delta, count + max(0, min_out_c_h-1)).
-pub fn delta_nearest_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: usize) -> f64 {
+pub fn delta_nearest_f_value(view: &ReachView<'_>, out_c: &[usize], policy_size: usize) -> f64 {
     if out_c.is_empty() {
         return -(policy_size as f64);
     }
@@ -240,7 +316,7 @@ pub fn delta_nearest_f_value(reach: &[ReachNode], out_c: &[usize], policy_size: 
     let mut h_vals: Vec<f64> = Vec::new();
     let mut min_out_c_h = f64::INFINITY;
 
-    for node in reach.iter() {
+    for node in view.iter() {
         match node.kind {
             NodeKind::Assigned => {
                 if node.cost_lower != f64::INFINITY {
@@ -329,13 +405,11 @@ impl Ord for PartialPolicyState {
 
 // ── Deduplication signature ──────────────────────────────────────────────────
 
-/// Canonical descriptor of a single unassigned compound reach node.
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct CompoundSig {
-    pub tn_mappings: Vec<(u32, u32)>,  // sorted by renamed node id
-    pub tn_orderings: Vec<(u32, u32)>, // sorted, deduped
-    pub state_facts: Vec<u32>,         // sorted fact IDs
-}
+/// Hashed descriptor of a single unassigned compound reach node.
+/// We hash the canonical `MemoKey` (already produced for `index_map` lookups)
+/// down to a `u64` so the open-list dedup set stores ~8 bytes per compound
+/// instead of three Vec allocations.
+pub type CompoundSig = u64;
 
 /// Full deduplication key for a PartialPolicyState.
 ///
@@ -348,57 +422,71 @@ pub struct CompoundSig {
 pub struct ReachSig {
     pub policy_size: usize,
     pub f_value_bits: u64,
-    pub compounds: Vec<CompoundSig>, // sorted for canonical form
+    pub compounds: Vec<CompoundSig>, // sorted hashes
 }
 
-/// Produce a canonical renaming of TN node IDs (independent of
-/// the arbitrary integer IDs assigned during grounding).
-fn canonicalize_tn(tn: &HTN) -> (Vec<(u32, u32)>, Vec<(u32, u32)>) {
-    let mut old_nodes: Vec<u32> = tn.get_nodes().iter().copied().collect();
-    old_nodes.sort();
-    let renaming: std::collections::HashMap<u32, u32> = old_nodes
-        .iter()
-        .enumerate()
-        .map(|(new_id, &old_id)| (old_id, new_id as u32))
-        .collect();
+/// Hash a single (TN, state) pair to a u64 using a deterministic SipHash.
+/// The hash matches across isomorphic TNs that differ only in node-ID labels:
+/// we rename node IDs to canonical 0..N order (same renaming the original
+/// `canonicalize_tn` used) before feeding the data to SipHash. Storing this
+/// as a `u64` (vs three Vec allocations per compound) shrinks the `seen`
+/// dedup set by orders of magnitude.
+#[inline]
+fn hash_compound(tn: &HTN, state: &HashSet<u32>) -> u64 {
+    use std::hash::{Hash, Hasher};
 
-    let mut tn_mappings: Vec<(u32, u32)> = tn
+    // Canonical renaming of node IDs to 0..N (independent of grounding order).
+    let mut old_nodes: Vec<u32> = tn.get_nodes().iter().copied().collect();
+    old_nodes.sort_unstable();
+    let mut renaming = std::collections::HashMap::with_capacity(old_nodes.len());
+    for (new_id, &old_id) in old_nodes.iter().enumerate() {
+        renaming.insert(old_id, new_id as u32);
+    }
+
+    let mut mappings: Vec<(u32, u32)> = tn
         .mappings
         .iter()
         .map(|(&old_node, &task_id)| (renaming[&old_node], task_id))
         .collect();
-    tn_mappings.sort();
+    mappings.sort_unstable();
 
-    let mut tn_orderings: Vec<(u32, u32)> = tn
+    let mut orderings: Vec<(u32, u32)> = tn
         .get_orderings()
         .into_iter()
         .map(|(src, dst)| (renaming[&src], renaming[&dst]))
         .collect();
-    tn_orderings.sort();
-    tn_orderings.dedup();
+    orderings.sort_unstable();
+    orderings.dedup();
 
-    (tn_mappings, tn_orderings)
+    let mut facts: Vec<u32> = state.iter().copied().collect();
+    facts.sort_unstable();
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (mappings.len() as u32).hash(&mut hasher);
+    for kv in &mappings {
+        kv.hash(&mut hasher);
+    }
+    (orderings.len() as u32).hash(&mut hasher);
+    for kv in &orderings {
+        kv.hash(&mut hasher);
+    }
+    (facts.len() as u32).hash(&mut hasher);
+    for f in &facts {
+        f.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Build a canonical signature of the reach graph for open-list deduplication.
 /// Based on: policy_size + f_value + the set of unresolved compound nodes.
 /// Called with the reach and f_value computed during expansion (not stored per state).
-pub fn compute_reach_sig(reach: &[ReachNode], f_value: f64, policy_size: usize) -> ReachSig {
-    let mut compounds: Vec<CompoundSig> = reach
+pub fn compute_reach_sig(view: &ReachView<'_>, f_value: f64, policy_size: usize) -> ReachSig {
+    let mut compounds: Vec<CompoundSig> = view
         .iter()
         .filter(|n| matches!(n.kind, NodeKind::Compound))
-        .map(|n| {
-            let (tn_mappings, tn_orderings) = canonicalize_tn(n.tn.as_ref());
-            let mut state_facts: Vec<u32> = n.state.iter().copied().collect();
-            state_facts.sort();
-            CompoundSig {
-                tn_mappings,
-                tn_orderings,
-                state_facts,
-            }
-        })
+        .map(|n| hash_compound(n.tn.as_ref(), n.state.as_ref()))
         .collect();
-    compounds.sort();
+    compounds.sort_unstable();
     ReachSig {
         policy_size,
         f_value_bits: f_value.to_bits(),
@@ -440,7 +528,7 @@ mod tests {
             dummy_node(NodeKind::Compound, 3.0),
         ];
         let out_c = vec![2usize];
-        let f = delta_nearest_f_value(&reach, &out_c, 2);
+        let f = delta_nearest_f_value(&ReachView::Full(&reach), &out_c, 2);
         assert!((f - (-10.0)).abs() < 1e-9, "expected -10.0, got {f}");
     }
 
@@ -453,16 +541,16 @@ mod tests {
             dummy_node(NodeKind::Compound, 5.0),
             dummy_node(NodeKind::Compound, 2.0),
         ];
-        let f = delta_nearest_f_value(&reach, &[0, 1], 0);
+        let f = delta_nearest_f_value(&ReachView::Full(&reach), &[0, 1], 0);
         assert!((f - (-5.0)).abs() < 1e-9, "expected -5.0, got {f}");
 
         // All-INFINITY out_c: count = policy_size + 1 = 4; no finite h → lb=4 → f=-4.
         let reach2 = vec![dummy_node(NodeKind::Compound, f64::INFINITY)];
-        let f2 = delta_nearest_f_value(&reach2, &[0], 3);
+        let f2 = delta_nearest_f_value(&ReachView::Full(&reach2), &[0], 3);
         assert!((f2 - (-4.0)).abs() < 1e-9, "expected -4.0, got {f2}");
 
         // Closed policy (out_c empty) → -(policy_size).
-        let f3 = delta_nearest_f_value(&[], &[], 5);
+        let f3 = delta_nearest_f_value(&ReachView::Full(&[]), &[], 5);
         assert!((f3 - (-5.0)).abs() < 1e-9, "expected -5.0, got {f3}");
     }
 }
