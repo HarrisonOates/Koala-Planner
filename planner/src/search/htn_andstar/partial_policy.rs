@@ -32,6 +32,15 @@ pub fn make_key(tn: &HTN, state: &HashSet<u32>) -> MemoKey {
     )
 }
 
+/// Controls whether AND* optimises for maximum success probability (MaxProb)
+/// or minimum expected cost (MinCost, for standard FOND domains).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchMode {
+    MaxProb,
+    #[allow(dead_code)] // used by run_fond (Phase 3)
+    MinCost,
+}
+
 /// Secondary ordering applied when two partial policies have equal f-value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TiebreakerKind {
@@ -70,9 +79,13 @@ pub struct ReachNode {
     pub tn: Rc<HTN>,
     pub state: Rc<HashSet<u32>>,
     pub kind: NodeKind,
-    /// Admissible upper bound on success probability from this node.
+    /// Admissible upper bound on success probability (MaxProb mode).
     /// Used to pin the V-value of Compound (out_c) nodes during VI.
     pub prob_upper: f64,
+    /// Admissible lower bound on cost from this node (MinCost/FOND mode).
+    /// Set to h_val at Compound nodes in MinCost mode; 0.0 elsewhere.
+    #[allow(dead_code)] // used by fond_f_value (Phase 3)
+    pub cost_lower: f64,
     /// Outgoing edges: (successor reach-index, edge probability).
     /// Empty for Goal, Dead, and Compound nodes.
     pub successors: Vec<(usize, f64)>,

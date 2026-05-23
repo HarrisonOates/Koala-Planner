@@ -9,7 +9,7 @@ use crate::domain_description::FONDProblem;
 use crate::relaxation::{OutcomeDeterminizer, RelaxedComposition};
 use crate::task_network::HTN;
 
-pub use partial_policy::TiebreakerKind;
+pub use partial_policy::{SearchMode, TiebreakerKind};
 use partial_policy::{
     compute_reach_sig, make_key, MemoKey, NodeKind, PartialPolicyState, PolicyAssignment,
     PolicyLink, ReachNode, ReachSig,
@@ -37,6 +37,7 @@ fn compute_reach(
     relaxed: &RelaxedComposition,
     bijection: &HashMap<u32, u32>,
     h_type: &HeuristicType,
+    mode: SearchMode,
 ) -> (Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
     // reach[i] starts as None and is filled when the node is dequeued.
     let mut reach: Vec<Option<ReachNode>> = Vec::new();
@@ -60,6 +61,7 @@ fn compute_reach(
                 state,
                 kind: NodeKind::Goal,
                 prob_upper: 1.0,
+                cost_lower: 0.0,
                 successors: vec![],
             });
             continue;
@@ -74,6 +76,7 @@ fn compute_reach(
                 state,
                 kind: NodeKind::Dead,
                 prob_upper: 0.0,
+                cost_lower: 0.0,
                 successors: vec![],
             });
             continue;
@@ -86,7 +89,14 @@ fn compute_reach(
         if has_decomposition {
             // ── Compound task ─────────────────────────────────────────────
             let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
-            let prob_upper = if h == f32::INFINITY { 0.0 } else { 1.0 };
+            let (prob_upper, cost_lower) = match mode {
+                SearchMode::MinCost => {
+                    let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
+                    let p = if h == f32::INFINITY { 0.0 } else { 1.0 };
+                    (p, c)
+                }
+                SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
+            };
             let key = make_key(&tn, &state);
 
             if let Some((task_name, method_name)) = assignments.get(&key) {
@@ -111,6 +121,7 @@ fn compute_reach(
                         state,
                         kind: NodeKind::Assigned,
                         prob_upper,
+                        cost_lower: 0.0,
                         successors: vec![(succ_idx, 1.0)],
                     });
                 } else {
@@ -120,6 +131,7 @@ fn compute_reach(
                         state,
                         kind: NodeKind::Dead,
                         prob_upper: 0.0,
+                        cost_lower: 0.0,
                         successors: vec![],
                     });
                 }
@@ -130,6 +142,7 @@ fn compute_reach(
                     state,
                     kind: NodeKind::Compound,
                     prob_upper,
+                    cost_lower,
                     successors: vec![],
                 });
                 out_c.push(node_idx);
@@ -165,6 +178,7 @@ fn compute_reach(
                 state,
                 kind: NodeKind::Primitive,
                 prob_upper: 1.0,
+                cost_lower: 0.0,
                 successors,
             });
         }
@@ -217,6 +231,7 @@ fn compute_reach_incremental(
     relaxed: &RelaxedComposition,
     bijection: &HashMap<u32, u32>,
     h_type: &HeuristicType,
+    mode: SearchMode,
 ) -> (Vec<ReachNode>, HashMap<MemoKey, usize>, Vec<usize>) {
     // Clone the full parent graph — already-explored nodes cost one clone
     // instead of a full BFS re-traversal.
@@ -252,6 +267,7 @@ fn compute_reach_incremental(
                 state,
                 kind: NodeKind::Goal,
                 prob_upper: 1.0,
+                cost_lower: 0.0,
                 successors: vec![],
             });
             continue;
@@ -265,6 +281,7 @@ fn compute_reach_incremental(
                 state,
                 kind: NodeKind::Dead,
                 prob_upper: 0.0,
+                cost_lower: 0.0,
                 successors: vec![],
             });
             continue;
@@ -276,13 +293,21 @@ fn compute_reach_incremental(
 
         if has_decomposition {
             let h = SearchGraphNode::h_val(tn.as_ref(), state.as_ref(), relaxed, bijection, h_type);
-            let prob_upper = if h == f32::INFINITY { 0.0 } else { 1.0 };
+            let (prob_upper, cost_lower) = match mode {
+                SearchMode::MinCost => {
+                    let c = if h == f32::INFINITY { f64::INFINITY } else { h as f64 };
+                    let p = if h == f32::INFINITY { 0.0 } else { 1.0 };
+                    (p, c)
+                }
+                SearchMode::MaxProb => (if h == f32::INFINITY { 0.0 } else { 1.0 }, 0.0),
+            };
             // Newly discovered compound nodes are unassigned — always Compound.
             reach[n_idx] = Some(ReachNode {
                 tn,
                 state,
                 kind: NodeKind::Compound,
                 prob_upper,
+                cost_lower,
                 successors: vec![],
             });
             out_c.push(n_idx);
@@ -312,6 +337,7 @@ fn compute_reach_incremental(
                 state,
                 kind: NodeKind::Primitive,
                 prob_upper: 1.0,
+                cost_lower: 0.0,
                 successors,
             });
         }
@@ -344,6 +370,7 @@ pub fn run(
         &relaxed,
         &bijection,
         &h_type,
+        SearchMode::MaxProb,
     );
     let f_value = PartialPolicyState::compute_f_by_vi(&init_reach);
     let init_sig = compute_reach_sig(&init_reach, f_value, 0);
@@ -481,6 +508,7 @@ pub fn run(
                 &relaxed,
                 &bijection,
                 &h_type,
+                SearchMode::MaxProb,
             );
             let new_f = PartialPolicyState::compute_f_by_vi(&new_reach_full);
 
