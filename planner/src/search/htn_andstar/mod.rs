@@ -324,18 +324,6 @@ fn compute_reach_incremental(
 // ── Assignment reconstruction ──────────────────────────────────────────────
 
 /// Walk the PolicyLink chain and reconstruct the assignments as a HashMap.
-fn collect_assignments(policy_tail: &Option<Rc<PolicyLink>>) -> HashMap<MemoKey, (String, String)> {
-    let mut map = HashMap::new();
-    let mut cur = policy_tail.as_ref();
-    while let Some(link) = cur {
-        let a = &link.assignment;
-        let key = make_key(a.tn_snapshot.as_ref(), a.state.as_ref());
-        map.insert(key, (a.task_name.clone(), a.method_name.clone()));
-        cur = link.parent.as_ref();
-    }
-    map
-}
-
 // ── Algorithm 2 — HTN-AND* ─────────────────────────────────────────────────
 
 pub fn run(

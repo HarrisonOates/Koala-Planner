@@ -1,14 +1,14 @@
+#![allow(dead_code)]
 use h_type::HeuristicType;
 
-use crate::domain_description::{ClassicalDomain, Facts};
+use crate::domain_description::Facts;
 use crate::relaxation::OutcomeDeterminizer;
-use std::borrow::BorrowMut;
-use std::collections::{HashMap, HashSet, LinkedList, BTreeSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::vec;
 
 use super::*;
-use crate::relaxation::RelaxedComposition;
 use crate::domain_description::FONDProblem;
+use crate::relaxation::RelaxedComposition;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -23,7 +23,7 @@ pub struct SearchGraph {
     pub rho: f64,
 }
 
-impl SearchGraph  {
+impl SearchGraph {
     pub fn new(problem: &FONDProblem) -> SearchGraph {
         let initial_tn = problem.init_tn.clone();
         // relaxed domain
@@ -67,7 +67,6 @@ impl SearchGraph  {
         }
     }
 
-
     fn mark_as_terminal(&mut self, id: u32) {
         let mut node = self.ids.get(&id).unwrap().borrow_mut();
         if node.is_goal() {
@@ -87,8 +86,7 @@ impl SearchGraph  {
             if node.state.as_ref() == state {
                 if HTN::is_isomorphic(&node.tn, tn) {
                     return Some(*id);
-                }
-                else {
+                } else {
                     return None;
                 }
             } else {
@@ -104,48 +102,46 @@ impl SearchGraph  {
 
     pub fn find_a_tip_node(&self) -> u32 {
         let mut working_set = BTreeSet::from([self.root]);
-        let (mut candidate, mut depth, mut cost) = (u32::MIN, u16::MIN, f32::NEG_INFINITY);
+        let (mut candidate, depth, cost) = (u32::MIN, u16::MIN, f32::NEG_INFINITY);
         while !working_set.is_empty() {
             let x = working_set.pop_first().unwrap();
-            let mut node = self.ids.get(&x).unwrap().borrow_mut();
+            let node = self.ids.get(&x).unwrap().borrow_mut();
             match node.status {
-                NodeStatus::Solved => {continue;}
-                NodeStatus::Failed => {continue;}
-                NodeStatus::OnGoing => {
-                    match &node.connections {
-                        Some(succ) => {
-                            match node.get_marked_connection() {
-                                Some(marked) => {
-                                    match self.arc_status(marked) {
-                                        NodeStatus::OnGoing => {
-                                            working_set.extend(marked.children.iter());
-                                        },
-                                        _ => {
-                                            if node.depth >= depth {
-                                                if node.cost >= cost {
-                                                    candidate = x;
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                None => {
-                                    if node.depth >= depth {
-                                        if node.cost >= cost {
-                                            candidate = x;
-                                        }
+                NodeStatus::Solved => {
+                    continue;
+                }
+                NodeStatus::Failed => {
+                    continue;
+                }
+                NodeStatus::OnGoing => match &node.connections {
+                    Some(_succ) => match node.get_marked_connection() {
+                        Some(marked) => match self.arc_status(marked) {
+                            NodeStatus::OnGoing => {
+                                working_set.extend(marked.children.iter());
+                            }
+                            _ => {
+                                if node.depth >= depth {
+                                    if node.cost >= cost {
+                                        candidate = x;
                                     }
                                 }
                             }
                         },
                         None => {
-                            return x;
+                            if node.depth >= depth {
+                                if node.cost >= cost {
+                                    candidate = x;
+                                }
+                            }
                         }
+                    },
+                    None => {
+                        return x;
                     }
-                }
+                },
             }
         }
-        return candidate
+        return candidate;
     }
 
     // TODO: better interface, decouple heuristic from graph
@@ -174,14 +170,18 @@ impl SearchGraph  {
                 outcome_probs: HashMap::new(),
             };
             for (state_idx, state) in expansion.states.iter().enumerate() {
-                let outcome_prob = expansion.outcome_probabilities.get(state_idx).copied().unwrap_or(1.0);
+                let outcome_prob = expansion
+                    .outcome_probabilities
+                    .get(state_idx)
+                    .copied()
+                    .unwrap_or(1.0);
                 let visited_before = self.visited(expansion.tn.as_ref(), state.as_ref());
                 match visited_before {
                     Some(x) => {
                         self.ids.get(&x).unwrap().borrow_mut().add_parent(x);
                         hyperarc.children.insert(x);
                         hyperarc.outcome_probs.insert(x, outcome_prob);
-                    },
+                    }
                     None => {
                         let mut node_label = NodeStatus::OnGoing;
                         let mut h = 0.0;
@@ -192,8 +192,14 @@ impl SearchGraph  {
                         } else if !skip_heuristic {
                             match &self.relaxed_domain {
                                 Some((encoder, bijection)) => {
-                                    h = SearchGraphNode::h_val(expansion.tn.as_ref(), state.as_ref(), encoder, bijection, &h_type)
-                                },
+                                    h = SearchGraphNode::h_val(
+                                        expansion.tn.as_ref(),
+                                        state.as_ref(),
+                                        encoder,
+                                        bijection,
+                                        &h_type,
+                                    )
+                                }
                                 None => {}
                             }
                             if h == f32::INFINITY {
@@ -220,7 +226,9 @@ impl SearchGraph  {
             }
             connectors.push(hyperarc);
         }
-        self.ids.get(&id).unwrap().borrow_mut().connections = Some(NodeConnections { children: connectors });
+        self.ids.get(&id).unwrap().borrow_mut().connections = Some(NodeConnections {
+            children: connectors,
+        });
     }
 }
 
@@ -228,7 +236,10 @@ impl SearchGraph  {
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::{task_network::{Task, PrimitiveAction, CompoundTask}, domain_description::DomainTasks};
+    use crate::{
+        domain_description::DomainTasks,
+        task_network::{CompoundTask, PrimitiveAction, Task},
+    };
 
     use super::*;
     fn generate_tree() -> SearchGraph {
@@ -236,25 +247,47 @@ mod tests {
             "dummy_action".to_string(),
             1,
             HashSet::new(),
-            vec![HashSet::new(), HashSet::from([1,2])],
-            vec![HashSet::new(), HashSet::from([3])]
+            vec![HashSet::new(), HashSet::from([1, 2])],
+            vec![HashSet::new(), HashSet::from([3])],
         ));
         let dummy_domain = Rc::new(DomainTasks::new(vec![dummy_action]));
         let n1 = SearchGraphNode {
             parents: None,
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
-            connections: Some(NodeConnections { children: vec![
-                Connector { children: HashSet::from([2]), cost: 1.0, is_marked: false,
-                    action_type: ConnectionLabel::Execution("p1".to_string(), 1),
-                    outcome_probs: HashMap::from([(2, 1.0)])},
-                Connector { children: HashSet::from([3, 4]), cost: 1.0, is_marked: true,
-                    action_type: ConnectionLabel::Execution("p2".to_string(), 2),
-                    outcome_probs: HashMap::from([(3, 0.5), (4, 0.5)])},
-                Connector { children: HashSet::from([5]), cost: 0.0, is_marked: false,
-                    action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string()),
-                    outcome_probs: HashMap::from([(5, 1.0)])},
-            ]}),
+            connections: Some(NodeConnections {
+                children: vec![
+                    Connector {
+                        children: HashSet::from([2]),
+                        cost: 1.0,
+                        is_marked: false,
+                        action_type: ConnectionLabel::Execution("p1".to_string(), 1),
+                        outcome_probs: HashMap::from([(2, 1.0)]),
+                    },
+                    Connector {
+                        children: HashSet::from([3, 4]),
+                        cost: 1.0,
+                        is_marked: true,
+                        action_type: ConnectionLabel::Execution("p2".to_string(), 2),
+                        outcome_probs: HashMap::from([(3, 0.5), (4, 0.5)]),
+                    },
+                    Connector {
+                        children: HashSet::from([5]),
+                        cost: 0.0,
+                        is_marked: false,
+                        action_type: ConnectionLabel::Decomposition(
+                            "t1".to_string(),
+                            "m1".to_string(),
+                        ),
+                        outcome_probs: HashMap::from([(5, 1.0)]),
+                    },
+                ],
+            }),
             cost: 2.0,
             status: NodeStatus::OnGoing,
             depth: 0,
@@ -262,7 +295,12 @@ mod tests {
         };
         let n2 = SearchGraphNode {
             parents: Some(vec![1]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
             connections: None,
             cost: f32::INFINITY,
@@ -272,13 +310,22 @@ mod tests {
         };
         let n3 = SearchGraphNode {
             parents: Some(vec![1]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
-            connections: Some(NodeConnections { children: vec![
-                Connector { children: HashSet::from([6]), cost: 1.0, is_marked: true,
+            connections: Some(NodeConnections {
+                children: vec![Connector {
+                    children: HashSet::from([6]),
+                    cost: 1.0,
+                    is_marked: true,
                     action_type: ConnectionLabel::Decomposition("t1".to_string(), "m3".to_string()),
-                    outcome_probs: HashMap::from([(6, 1.0)])}
-            ]}),
+                    outcome_probs: HashMap::from([(6, 1.0)]),
+                }],
+            }),
             cost: 2.0,
             status: NodeStatus::OnGoing,
             depth: 1,
@@ -286,7 +333,12 @@ mod tests {
         };
         let n4 = SearchGraphNode {
             parents: Some(vec![1]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
             connections: None,
             cost: 0.0,
@@ -296,13 +348,22 @@ mod tests {
         };
         let n5 = SearchGraphNode {
             parents: Some(vec![1]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
-            connections: Some(NodeConnections { children: vec![
-                Connector { children: HashSet::from([7, 8]), cost: 1.0, is_marked: false,
+            connections: Some(NodeConnections {
+                children: vec![Connector {
+                    children: HashSet::from([7, 8]),
+                    cost: 1.0,
+                    is_marked: false,
                     action_type: ConnectionLabel::Execution("p3".to_string(), 1),
-                    outcome_probs: HashMap::from([(7, 0.5), (8, 0.5)])},
-            ]}),
+                    outcome_probs: HashMap::from([(7, 0.5), (8, 0.5)]),
+                }],
+            }),
             cost: 3.0,
             status: NodeStatus::OnGoing,
             depth: 1,
@@ -312,11 +373,11 @@ mod tests {
             parents: Some(vec![3]),
             state: Rc::new(HashSet::new()),
             tn: Rc::new(HTN::new(
-                    BTreeSet::from([1]),
-                    vec![],
-                    dummy_domain.clone(),
-                    HashMap::from([(1, dummy_domain.get_id("dummy_action"))])
-                )),
+                BTreeSet::from([1]),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::from([(1, dummy_domain.get_id("dummy_action"))]),
+            )),
             connections: None,
             cost: 1.0,
             status: NodeStatus::OnGoing,
@@ -325,7 +386,12 @@ mod tests {
         };
         let n7 = SearchGraphNode {
             parents: Some(vec![5]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
             connections: None,
             cost: 2.0,
@@ -335,7 +401,12 @@ mod tests {
         };
         let n8 = SearchGraphNode {
             parents: Some(vec![5]),
-            tn: Rc::new(HTN::new(BTreeSet::new(), vec![], dummy_domain.clone(), HashMap::new())),
+            tn: Rc::new(HTN::new(
+                BTreeSet::new(),
+                vec![],
+                dummy_domain.clone(),
+                HashMap::new(),
+            )),
             state: Rc::new(HashSet::new()),
             connections: None,
             cost: 1.0,
@@ -345,8 +416,14 @@ mod tests {
         };
         SearchGraph {
             ids: HashMap::from([
-                (1, RefCell::new(n1)), (2, RefCell::new(n2)), (3, RefCell::new(n3)), (4, RefCell::new(n4)),
-                (5, RefCell::new(n5)), (6, RefCell::new(n6)), (7, RefCell::new(n7)), (8, RefCell::new(n8))
+                (1, RefCell::new(n1)),
+                (2, RefCell::new(n2)),
+                (3, RefCell::new(n3)),
+                (4, RefCell::new(n4)),
+                (5, RefCell::new(n5)),
+                (6, RefCell::new(n6)),
+                (7, RefCell::new(n7)),
+                (8, RefCell::new(n8)),
             ]),
             root: 1,
             cursor: 9,
@@ -376,13 +453,15 @@ mod tests {
                 assert_eq!(x.children.len(), 1);
                 let children = &x.children[0].children;
                 assert_eq!(children.contains(&9), true);
-            },
-            None => {panic!("children not found")},
+            }
+            None => {
+                panic!("children not found")
+            }
         }
         let n_child1 = tree.ids.get(&9).unwrap().borrow();
         match &n_child1.parents {
             Some(x) => assert_eq!(*x, vec![6]),
-            None => panic!("parent not found")
+            None => panic!("parent not found"),
         }
     }
 
@@ -393,15 +472,13 @@ mod tests {
         let domain = Rc::new(DomainTasks::new(vec![t1, t2]));
         let n1 = SearchGraphNode {
             parents: Some(vec![1]),
-            state: Rc::new(HashSet::from([1,2])),
-            tn: Rc::new(
-                    HTN::new(
-                        BTreeSet::from([1,2]),
-                        vec![(1,2)],
-                        domain.clone(),
-                HashMap::from([(1,0), (2,1)])
-                    )
-                ),
+            state: Rc::new(HashSet::from([1, 2])),
+            tn: Rc::new(HTN::new(
+                BTreeSet::from([1, 2]),
+                vec![(1, 2)],
+                domain.clone(),
+                HashMap::from([(1, 0), (2, 1)]),
+            )),
             connections: None,
             cost: 10.0,
             status: NodeStatus::OnGoing,
@@ -415,14 +492,15 @@ mod tests {
             relaxed_domain: None,
             rho: 1.0,
         };
-        let visited = graph.visited(&
-            HTN::new(
-                BTreeSet::from([4,5]), 
-                vec![(4,5)], 
+        let visited = graph.visited(
+            &HTN::new(
+                BTreeSet::from([4, 5]),
+                vec![(4, 5)],
                 domain.clone(),
-        HashMap::from([(4,0), (5,1)])
-            )
-        , &HashSet::from([1,2]));
+                HashMap::from([(4, 0), (5, 1)]),
+            ),
+            &HashSet::from([1, 2]),
+        );
         assert_eq!(true, visited.is_some());
     }
 

@@ -1,10 +1,8 @@
-use std::hash::Hash;
-use core::{hash::Hasher, fmt};
 
 use crate::task_network::network::HTN;
 
 #[derive(Debug, Clone)]
-pub struct Method{
+pub struct Method {
     pub name: String,
     pub decomposition: HTN,
 }

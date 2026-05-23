@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::rc::Weak;
 
 use crate::task_network::CompoundTask;
 use crate::task_network::Method;
@@ -64,7 +63,7 @@ impl FONDProblem {
             );
             processed_tasks.push(new_task);
         }
-        let mut domain_tasks = Rc::new(DomainTasks::new(processed_tasks));
+        let domain_tasks = Rc::new(DomainTasks::new(processed_tasks));
 
         // Process methods
         let mut parsed_methods = vec![];

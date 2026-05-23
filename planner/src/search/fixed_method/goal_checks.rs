@@ -1,26 +1,25 @@
+#![allow(dead_code)]
 use astar::AStarResult;
 use search_node::{Edge, SearchNode};
 use weak_linearization::WeakLinearization;
 
-use super::astar::{CustomStatistics, CustomStatistic};
-use super::search_space::SearchSpace;
+use super::astar::{CustomStatistic, CustomStatistics};
 use super::*;
 use crate::{
-    domain_description::{ClassicalDomain, DomainTasks, FONDProblem, Facts},
-    search::{AOStarSearch, HeuristicType, NodeStatus, SearchResult, StrongPolicy},
-    task_network::{Method, Task, HTN},
+    domain_description::FONDProblem,
+    search::{AOStarSearch, HeuristicType, SearchResult},
+    task_network::{Task, HTN},
 };
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap, HashSet},
     rc::Rc,
-    string,
 };
 
 pub fn is_goal_weak_ld(
-    problem: &FONDProblem,
+    _problem: &FONDProblem,
     leaf_node: Rc<RefCell<SearchNode>>,
-    custom_statistics: &mut CustomStatistics,
+    _custom_statistics: &mut CustomStatistics,
 ) -> AStarResult {
     if leaf_node.borrow().tn.is_empty() {
         let mut lin = WeakLinearization::new();
@@ -48,7 +47,8 @@ pub fn is_goal_strong_od(
     // a weak LD solution was found and will be attempted
     custom_statistics
         .entry(String::from("# of attempted weak LD solutions"))
-        .or_insert(CustomStatistic::Value(0)).accumulate(1);
+        .or_insert(CustomStatistic::Value(0))
+        .accumulate(1);
 
     // construct new FONDProblem for the AO* subproblem
     let mut sub_problem = FONDProblem {
@@ -68,7 +68,8 @@ pub fn is_goal_strong_od(
     // accumulate total subroutine search node count
     custom_statistics
         .entry(String::from("# of search nodes in all AO* calls"))
-        .or_insert(CustomStatistic::Value(0)).accumulate(stats.search_nodes);
+        .or_insert(CustomStatistic::Value(0))
+        .accumulate(stats.search_nodes);
     leaf_node.borrow_mut().goal_tested = true;
 
     match solution {
@@ -78,12 +79,13 @@ pub fn is_goal_strong_od(
             //     String::from("# of search nodes in final (successful) AO* call"),
             //     CustomStatistic::Value(stats.search_nodes),
             // );
-            custom_statistics.insert(String::from("makespan"), CustomStatistic::Value(policy.makespan as u32));
+            custom_statistics.insert(
+                String::from("makespan"),
+                CustomStatistic::Value(policy.makespan as u32),
+            );
             AStarResult::Strong(policy)
         }
-        SearchResult::NoSolution => {
-            AStarResult::NoSolution
-        }
+        SearchResult::NoSolution => AStarResult::NoSolution,
     }
 }
 
@@ -116,11 +118,11 @@ pub fn deorder(leaf_node: Rc<RefCell<SearchNode>>) -> HTN {
             let old_id: OldID = edge.task_id;
 
             match &edge.method_name {
-                Some(name) => {
+                Some(_name) => {
                     // println!("[CREATING COMPOUND ORDERING SET AT] {}", old_id);
                     compound_mapping.insert(old_id, Vec::new());
                     // iterate over them, check their type; if primitive, map to new ID and insert; if compound, insert with Old ID
-                    let mut child_set: HashSet<OldID> = child.borrow().tn.get_task_id_set();
+                    let child_set: HashSet<OldID> = child.borrow().tn.get_task_id_set();
                     let parent_set: HashSet<OldID> = parent_node.tn.get_task_id_set();
                     let method_tasks: HashSet<OldID> =
                         child_set.difference(&parent_set).cloned().collect();

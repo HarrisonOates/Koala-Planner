@@ -1,19 +1,10 @@
-#![allow(unused)]
+#![allow(dead_code)]
 use std::collections::{HashMap, HashSet};
-use std::env;
 
-use crate::domain_description::{read_json_domain, ClassicalDomain, FONDProblem};
-use crate::heuristics::{h_add, h_max};
+use crate::domain_description::ClassicalDomain;
 use crate::relaxation::RelaxedComposition;
-use crate::search::{
-    astar::AStarResult,
-    goal_checks::{is_goal_strong_od, is_goal_weak_ld},
-    search_node::{get_successors_systematic, SearchNode},
-};
-use crate::search::{HeuristicType, SearchResult};
 use crate::task_network::HTN;
 
-use super::search_space::SearchSpace;
 
 pub type ClassicalHeuristic = fn(&ClassicalDomain, &HashSet<u32>, &HashSet<u32>) -> f32;
 

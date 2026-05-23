@@ -75,7 +75,7 @@ pub fn read_json_domain(path: &str) -> FONDProblem {
         let processed_m = (name, method.task, method.subtasks, method.orderings);
         methods.push(processed_m);
     }
-    let mut problem = FONDProblem::new(
+    let problem = FONDProblem::new(
         domain.facts,
         actions,
         methods,

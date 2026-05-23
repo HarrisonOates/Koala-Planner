@@ -89,7 +89,7 @@ fn plan_length(domain: &ClassicalDomain, graphplan: GraphPlan, goal_state: &Hash
 mod test {
     use super::*;
     use crate::domain_description::Facts;
-    use crate::heuristics::PrimitiveAction;
+    use crate::task_network::PrimitiveAction;
 
     pub fn generate_domain() -> ClassicalDomain {
         let p1 = PrimitiveAction::new(

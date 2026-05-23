@@ -1,16 +1,16 @@
+#![allow(dead_code)]
 use search_node::{AStarStatus, Edge, SearchNode};
 
 use super::*;
 use crate::{
-    domain_description::{ClassicalDomain, DomainTasks, FONDProblem, Facts},
+    domain_description::FONDProblem,
     relaxation::{OutcomeDeterminizer, RelaxedComposition},
-    task_network::{Method, HTN},
+    task_network::HTN,
 };
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
-    string,
 };
 
 pub struct SearchSpace {
@@ -65,7 +65,7 @@ impl SearchSpace {
                     None => {
                         // No isomorphic node, add this to the bucket
                         self.total_nodes += 1;
-                        if (self.total_nodes % 200 == 0) {
+                        if self.total_nodes % 200 == 0  {
                             println!("[DEBUG] Explored {} search nodes", self.total_nodes);
                         }
                         let ret = Rc::new(RefCell::new(new_node));
@@ -77,7 +77,7 @@ impl SearchSpace {
             None => {
                 // No bucket exists for this hash, so make one
                 self.total_nodes += 1;
-                if (self.total_nodes % 200 == 0) {
+                if self.total_nodes % 200 == 0  {
                     println!("[DEBUG] Explored {} search nodes", self.total_nodes);
                 }
                 let ret = Rc::new(RefCell::new(new_node));

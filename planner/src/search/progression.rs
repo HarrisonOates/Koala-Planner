@@ -1,9 +1,9 @@
+#![allow(dead_code)]
+use super::*;
 use std::{
-    cell::RefCell,
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::HashSet,
     rc::Rc,
 };
-use super::*;
 
 pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
     if tn.is_goal() {
@@ -28,11 +28,7 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
                 } else {
                     let new_tn = Rc::new(tn.apply_action(*p));
                     let new_states = a.transition(state.as_ref());
-                    let new_states = new_states
-                        .into_iter()
-                        .map(|x| {
-                            Rc::new(x)
-                        }).collect();
+                    let new_states = new_states.into_iter().map(|x| Rc::new(x)).collect();
                     expansions.push(NodeExpansion {
                         connection_label: ConnectionLabel::Execution(a.name.clone(), a.cost),
                         tn: new_tn,
@@ -45,9 +41,8 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
     }
     // expand all abstract tasks
     for abstract_id in abstract_tasks.iter() {
-        if let Task::Compound(
-            CompoundTask { name, methods }
-        ) = &*tn.get_task(*abstract_id).borrow() {
+        if let Task::Compound(CompoundTask { name, methods }) = &*tn.get_task(*abstract_id).borrow()
+        {
             for method in methods.iter() {
                 let new_tn = Rc::new(tn.decompose(*abstract_id, method));
                 expansions.push(NodeExpansion {
@@ -64,7 +59,6 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
     }
     expansions
 }
-
 
 #[derive(Debug)]
 pub struct NodeExpansion {
@@ -97,12 +91,11 @@ impl ConnectionLabel {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain_description::DomainTasks, task_network::Method};
-    use std::collections::HashMap;
+    use crate::{domain_description::DomainTasks, task_network::{Method, PrimitiveAction}};
+    use std::collections::{BTreeSet, HashMap};
 
     #[test]
     pub fn expansion_correctness_test() {

@@ -1,15 +1,11 @@
+#![allow(unused_imports)]
 use super::super::astar::{a_star_search, AStarResult};
 use super::super::goal_checks::*;
 use super::super::*;
-use crate::domain_description::FONDProblem;
-use crate::domain_description::Facts;
-use search_node::get_successors_systematic;
-use search_node::SearchNode;
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    rc::Rc,
-    vec,
-};
+use crate::domain_description::{Facts, FONDProblem};
+use search_node::{get_successors_systematic, SearchNode};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 
 #[cfg(test)]
 #[test]
@@ -60,7 +56,7 @@ pub fn strong_od_problem_1() {
     );
     let (solution, statistics) = a_star_search(
         &problem,
-        |x, y, z, w| 0.0,
+        |_x, _y, _z, _w| 0.0,
         get_successors_systematic,
         || 1.0,
         is_goal_strong_od,
@@ -122,7 +118,7 @@ pub fn strong_od_problem_2() {
     );
     let (solution, statistics) = a_star_search(
         &problem,
-        |x, y, z, w| 0.0,
+        |_x, _y, _z, _w| 0.0,
         get_successors_systematic,
         || 1.0,
         is_goal_strong_od,

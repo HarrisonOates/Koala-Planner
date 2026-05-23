@@ -1,12 +1,9 @@
-use std::collections::{BinaryHeap, HashSet, HashMap};
-use crate::{domain_description::FONDProblem, task_network::HTN};
+use crate::domain_description::FONDProblem;
 
-use super::{SearchResult, SearchGraph, SearchStats, h_type, HeuristicType};
-use std::time::{Instant, Duration};
+use super::{HeuristicType, SearchGraph, SearchResult, SearchStats};
+use std::time::Instant;
 
-pub struct AOStarSearch {
-
-}
+pub struct AOStarSearch {}
 impl AOStarSearch {
     // the initial TN is assumed to be in collapsed format (i.e., with a single abstract task)
     pub fn run(problem: &FONDProblem, h_type: HeuristicType) -> (SearchResult, SearchStats) {
@@ -18,13 +15,14 @@ impl AOStarSearch {
             let n = search_graph.find_a_tip_node();
             search_graph.expand(n, &h_type, false);
             search_graph.backward_cost_revision(n);
-            explored_nodes+=1;
+            explored_nodes += 1;
             let depth = search_graph.ids.get(&n).unwrap().borrow().depth;
             if depth > max_depth {
                 max_depth = depth;
             }
         }
-        let root_prob = search_graph.ids
+        let root_prob = search_graph
+            .ids
             .get(&search_graph.root)
             .unwrap()
             .borrow()

@@ -1,14 +1,10 @@
+#![allow(unused_imports)]
 use super::super::astar::{a_star_search, AStarResult};
 use super::super::goal_checks::*;
 use super::super::*;
-use crate::domain_description::FONDProblem;
-use crate::domain_description::Facts;
+use crate::domain_description::{Facts, FONDProblem};
 use search_node::get_successors_systematic;
-use std::{
-    borrow::BorrowMut,
-    collections::{BTreeSet, HashMap, HashSet},
-    vec,
-};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[cfg(test)]
 #[test]
@@ -56,7 +52,7 @@ pub fn test_deordering() {
     );
     let (solution, statistics) = a_star_search(
         &problem,
-        |x, y, z, w| 0.0,
+        |_x, _y, _z, _w| 0.0,
         get_successors_systematic,
         || 1.0,
         is_goal_weak_ld,
@@ -120,7 +116,7 @@ pub fn test_deordering2() {
     );
     let (solution, statistics) = a_star_search(
         &problem,
-        |x, y, z, w| 0.0,
+        |_x, _y, _z, _w| 0.0,
         get_successors_systematic,
         || 1.0,
         is_goal_weak_ld,
@@ -204,7 +200,7 @@ fn test_deordering3() {
     );
     let (solution, statistics) = a_star_search(
         &problem,
-        |x, y, z, w| 0.0,
+        |_x, _y, _z, _w| 0.0,
         get_successors_systematic,
         || 1.0,
         is_goal_weak_ld,

@@ -1,11 +1,12 @@
+#[cfg(test)]
 mod conformant;
-mod failure;
-mod decomposition;
-mod recursion_test;
-mod satelite_integration;
+#[cfg(test)]
 mod dag_test;
-
-use super::{HTN, Task, PrimitiveAction, CompoundTask, Applicability};
-use super::cf::AOStarSearch;
-use crate::domain_description::FONDProblem;
-use super::SearchResult;
+#[cfg(test)]
+mod decomposition;
+#[cfg(test)]
+mod failure;
+#[cfg(test)]
+mod recursion_test;
+#[cfg(test)]
+mod satelite_integration;

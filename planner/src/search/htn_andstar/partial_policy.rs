@@ -1,6 +1,6 @@
 use crate::task_network::HTN;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
 // ── MemoKey types (shared with mod.rs) ────────────────────────────────────────

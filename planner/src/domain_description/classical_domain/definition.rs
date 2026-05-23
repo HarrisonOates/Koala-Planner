@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::HashSet;
 
 use crate::task_network::PrimitiveAction;
@@ -11,28 +12,22 @@ pub struct ClassicalDomain {
 }
 
 impl ClassicalDomain {
-    pub fn new(
-        facts: Facts,
-        actions: Vec<PrimitiveAction>,
-    ) -> ClassicalDomain {
-        ClassicalDomain { facts, actions}
+    pub fn new(facts: Facts, actions: Vec<PrimitiveAction>) -> ClassicalDomain {
+        ClassicalDomain { facts, actions }
     }
 
     pub fn delete_relax(&self) -> ClassicalDomain {
-        let new_actions = self.actions.iter()
-            .map(|a| {
-                a.delete_relax()
-            }).collect();
-        ClassicalDomain::new(
-            self.facts.clone(),
-            new_actions,
-        )
+        let new_actions = self.actions.iter().map(|a| a.delete_relax()).collect();
+        ClassicalDomain::new(self.facts.clone(), new_actions)
     }
 
     pub fn get_actions_by_index(&self, indices: HashSet<usize>) -> Vec<&PrimitiveAction> {
-        self.actions.iter().enumerate().filter(|(i, action)| {
-            indices.contains(i)
-        }).map(|(i, action)| action).collect()
+        self.actions
+            .iter()
+            .enumerate()
+            .filter(|(i, _action)| indices.contains(i))
+            .map(|(_i, action)| action)
+            .collect()
     }
 
     pub fn get_fact(&self, index: u32) -> &String {

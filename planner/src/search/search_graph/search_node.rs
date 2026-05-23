@@ -1,12 +1,13 @@
+#![allow(dead_code)]
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
 };
 
 use super::*;
-use super::{h_type, CompoundTask, HeuristicType, PrimitiveAction, Task, HTN};
+use super::{HeuristicType, HTN};
 
-use crate::{heuristics::*, relaxation::RelaxedComposition, task_network::Applicability};
+use crate::{heuristics::*, relaxation::RelaxedComposition};
 
 #[derive(Debug)]
 pub struct SearchGraphNode {
@@ -61,7 +62,7 @@ impl SearchGraphNode {
         }
     }
 
-    pub fn add_parent(&mut self, id: u32) {
+    pub fn add_parent(&mut self, _id: u32) {
         self.parents = match &self.parents {
             Some(parents) => {
                 let p = parents.clone();

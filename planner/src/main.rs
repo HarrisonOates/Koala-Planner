@@ -1,8 +1,4 @@
-#![allow(unused)]
-use std::{
-    collections::{HashMap, HashSet},
-    env,
-};
+use std::env;
 
 extern crate bit_vec;
 
@@ -18,13 +14,11 @@ use crate::search::htn_andstar::TiebreakerKind;
 use crate::search::{HeuristicType, SearchResult};
 use domain_description::{read_json_domain, FONDProblem};
 use heuristics::{h_add, h_ff, h_max};
-use relaxation::RelaxedComposition;
 use search::{
     astar::AStarResult,
-    goal_checks::{is_goal_strong_od, is_goal_weak_ld},
-    search_node::{get_successors_systematic, SearchNode},
+    goal_checks::is_goal_strong_od,
+    search_node::get_successors_systematic,
 };
-use task_network::HTN;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

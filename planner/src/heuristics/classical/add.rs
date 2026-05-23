@@ -1,6 +1,9 @@
 use super::*;
-use std::{collections::{HashSet, HashMap}, iter::repeat};
 use crate::task_network::Applicability;
+use std::{
+    collections::{HashMap, HashSet},
+    iter::repeat,
+};
 
 pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
     let mut facts: HashMap<u32, u32> = state.iter().cloned().zip(repeat(0 as u32)).collect();
@@ -42,40 +45,44 @@ pub fn h_add(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::heuristics::PrimitiveAction;
     use crate::domain_description::Facts;
+    use crate::task_network::PrimitiveAction;
 
     pub fn generate_domain() -> ClassicalDomain {
         let p1 = PrimitiveAction::new(
-            "p1".to_string(), 
-            1, 
-            HashSet::from([0]), 
-            vec![HashSet::from([1]),],
-            vec![HashSet::from([3]),] 
+            "p1".to_string(),
+            1,
+            HashSet::from([0]),
+            vec![HashSet::from([1])],
+            vec![HashSet::from([3])],
         );
         let p2 = PrimitiveAction::new(
-            "p2".to_string(), 
-            1, 
-            HashSet::from([1]), 
-            vec![HashSet::from([2]),],
-            vec![HashSet::new(),] 
+            "p2".to_string(),
+            1,
+            HashSet::from([1]),
+            vec![HashSet::from([2])],
+            vec![HashSet::new()],
         );
         let p3 = PrimitiveAction::new(
-            "p3".to_string(), 
-            1, 
-            HashSet::from([1]), 
-            vec![HashSet::from([3]),],
-            vec![HashSet::new(),] 
+            "p3".to_string(),
+            1,
+            HashSet::from([1]),
+            vec![HashSet::from([3])],
+            vec![HashSet::new()],
         );
         let p4 = PrimitiveAction::new(
-            "p4".to_string(), 
-            1, 
-            HashSet::from([1, 2, 3]), 
-            vec![HashSet::from([4]),],
-            vec![HashSet::new(),] 
+            "p4".to_string(),
+            1,
+            HashSet::from([1, 2, 3]),
+            vec![HashSet::from([4])],
+            vec![HashSet::new()],
         );
         let facts = Facts::new(vec![
-            "0".to_owned(), "1".to_owned(), "2".to_owned(), "3".to_owned(), "4".to_owned()
+            "0".to_owned(),
+            "1".to_owned(),
+            "2".to_owned(),
+            "3".to_owned(),
+            "4".to_owned(),
         ]);
         let actions = vec![p1, p2, p3, p4];
         ClassicalDomain::new(facts, actions)
