@@ -337,7 +337,6 @@ mod tests {
             tasks: domain.clone(),
             initial_state: HashSet::from([]),
             init_tn: init_tn,
-            rho: 1.0,
         };
         problem.collapse_tn();
 
@@ -362,7 +361,6 @@ mod tests {
             tasks: domain.clone(),
             initial_state: HashSet::from([]),
             init_tn: new_tn,
-            rho: 1.0,
         };
         problem2.collapse_tn();
 
@@ -451,7 +449,6 @@ mod tests {
             tasks: domain.clone(),
             initial_state: HashSet::new(),
             init_tn: tn,
-            rho: 1.0,
         };
         problem.collapse_tn();
         let tn = problem.init_tn;
