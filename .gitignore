@@ -1,6 +1,7 @@
 *.hddl
 *.pyc
 *.json
+!planner/test_domains/*.json
 *.ground
 *.sas+
 *.txt
