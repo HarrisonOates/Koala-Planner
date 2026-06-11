@@ -1,8 +1,7 @@
-mod relaxed_composition;
 mod outcome_determinization;
+mod relaxed_composition;
 
-pub use relaxed_composition::RelaxedComposition;
 use crate::heuristics::TDG;
-use crate::task_network::{HTN, Task, CompoundTask, Applicability, PrimitiveAction};
+use crate::task_network::{CompoundTask, PrimitiveAction, Task, HTN};
 pub use outcome_determinization::OutcomeDeterminizer;
-use crate::task_network::Method;
+pub use relaxed_composition::RelaxedComposition;

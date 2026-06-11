@@ -1,10 +1,10 @@
+#![allow(dead_code)]
 use std::collections::HashMap;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct Facts {
     literals: Vec<String>,
-    ids: HashMap<String, u32>
+    ids: HashMap<String, u32>,
 }
 
 impl Facts {
@@ -13,7 +13,7 @@ impl Facts {
         for (i, fact) in literals.iter().cloned().enumerate() {
             ids.insert(fact, i as u32);
         }
-        Facts{literals, ids}
+        Facts { literals, ids }
     }
 
     pub fn get_id(&self, fact: &str) -> u32 {
@@ -25,10 +25,7 @@ impl Facts {
     }
 
     pub fn extend(&self, extension: Vec<String>) -> Facts {
-        let mut max_id = self.ids.iter()
-            .map(|(literal, id)| {
-                id
-            }).max().unwrap() + 1;
+        let mut max_id = self.ids.iter().map(|(_literal, id)| id).max().copied().unwrap_or(0) + 1;
         let mut new_literals = self.literals.clone();
         let mut new_ids = self.ids.clone();
         for literal in extension.into_iter() {
@@ -36,7 +33,10 @@ impl Facts {
             new_ids.insert(literal, max_id);
             max_id += 1;
         }
-        Facts { literals: new_literals, ids: new_ids }
+        Facts {
+            literals: new_literals,
+            ids: new_ids,
+        }
     }
 
     pub fn count(&self) -> u32 {
@@ -48,7 +48,7 @@ impl Facts {
     }
 
     pub fn get_all_ids(&self) -> Vec<u32> {
-        self.ids.iter().map(|(_,v) | v).cloned().collect()
+        self.ids.iter().map(|(_, v)| v).cloned().collect()
     }
 }
 
@@ -62,7 +62,7 @@ mod tests {
             String::from("+at[waypoint0, rover0]"),
             String::from("-at[waypoint0, rover0]"),
             String::from("+at[waypoint1, rover0]"),
-            String::from("-at[waypoint1, rover0]")
+            String::from("-at[waypoint1, rover0]"),
         ]);
         let facts = Facts::new(literals);
         assert_eq!(facts.get_id("+at[waypoint0, rover0]"), 0);
@@ -82,13 +82,10 @@ mod tests {
             String::from("+at[waypoint0, rover0]"),
             String::from("-at[waypoint0, rover0]"),
             String::from("+at[waypoint1, rover0]"),
-            String::from("-at[waypoint1, rover0]")
+            String::from("-at[waypoint1, rover0]"),
         ]);
         let facts = Facts::new(literals);
-        let extension = Vec::from([
-            String::from("Reached_t1"),
-            String::from("Reached_t2"),
-        ]);
+        let extension = Vec::from([String::from("Reached_t1"), String::from("Reached_t2")]);
         let facts = facts.extend(extension);
         assert_eq!(facts.get_id("+at[waypoint0, rover0]"), 0);
         assert_eq!(facts.get_id("-at[waypoint0, rover0]"), 1);
@@ -105,8 +102,3 @@ mod tests {
         assert_eq!(facts.get_fact(5), "Reached_t2");
     }
 }
-
-
-
-
-
