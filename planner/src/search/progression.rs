@@ -1,7 +1,7 @@
-#![allow(dead_code)]
 use super::*;
 use std::{
-    collections::HashSet,
+    cell::RefCell,
+    collections::{BTreeSet, HashMap, HashSet},
     rc::Rc,
 };
 
@@ -12,51 +12,54 @@ pub fn progress(tn: Rc<HTN>, state: Rc<HashSet<u32>>) -> Vec<NodeExpansion> {
     let unconstrained = tn.get_unconstrained_tasks();
     let (abstract_tasks, primitive_tasks) = tn.separate_tasks(&unconstrained);
     let mut expansions = vec![];
-    // expand all primitives
-    for p in primitive_tasks.iter() {
-        if let Task::Primitive(a) = &*tn.get_task(*p).borrow() {
-            if a.is_applicable(state.as_ref()) {
-                if a.is_deterministic() {
-                    let new_tn = tn.apply_action(*p);
-                    let new_state = a.transition(state.as_ref())[0].clone();
+    
+    // Following Alg. 3 of Höller et al. (2020): while an unconstrained abstract
+    // task remains, decompose one of them and progress no action. Only once no
+    // unconstrained abstract task is left do we progress the primitive tasks.
+    match abstract_tasks.first() {
+        // The choice of which abstract task to decompose is immaterial to the
+        // resulting solution, so a single task is fixed arbitrarily; branching
+        // occurs only over its methods.
+        Some(abstract_id) => {
+            if let Task::Compound(CompoundTask { name, methods }) =
+                &*tn.get_task(*abstract_id).borrow()
+            {
+                for method in methods.iter() {
+                    let new_tn = Rc::new(tn.decompose(*abstract_id, method));
                     expansions.push(NodeExpansion {
-                        connection_label: ConnectionLabel::Execution(a.name.clone(), a.cost),
-                        tn: Rc::new(new_tn),
-                        states: vec![Rc::new(new_state)],
-                        outcome_probabilities: vec![1.0],
-                    });
-                } else {
-                    let new_tn = Rc::new(tn.apply_action(*p));
-                    let new_states = a.transition(state.as_ref());
-                    let new_states = new_states.into_iter().map(|x| Rc::new(x)).collect();
-                    expansions.push(NodeExpansion {
-                        connection_label: ConnectionLabel::Execution(a.name.clone(), a.cost),
+                        connection_label: ConnectionLabel::Decomposition(
+                            name.clone(),
+                            method.name.clone(),
+                        ),
                         tn: new_tn,
-                        states: new_states,
-                        outcome_probabilities: {
-                            let n = a.add_effects.len();
-                            vec![1.0 / n as f64; n]
-                        },
+                        states: vec![state.clone()],
                     });
                 }
             }
-        };
-    }
-    // expand all abstract tasks
-    for abstract_id in abstract_tasks.iter() {
-        if let Task::Compound(CompoundTask { name, methods }) = &*tn.get_task(*abstract_id).borrow()
-        {
-            for method in methods.iter() {
-                let new_tn = Rc::new(tn.decompose(*abstract_id, method));
-                expansions.push(NodeExpansion {
-                    connection_label: ConnectionLabel::Decomposition(
-                        name.clone(),
-                        method.name.clone(),
-                    ),
-                    tn: new_tn,
-                    states: vec![state.clone()],
-                    outcome_probabilities: vec![1.0],
-                });
+        }
+        // No unconstrained abstract task remains: progress the unconstrained
+        // primitive tasks. A non-deterministic action yields one successor
+        // state per outcome, bundled together as a single (AND) expansion.
+        None => {
+            for p in primitive_tasks.iter() {
+                if let Task::Primitive(a) = &*tn.get_task(*p).borrow() {
+                    if a.is_applicable(state.as_ref()) {
+                        let new_tn = Rc::new(tn.apply_action(*p));
+                        let new_states = a
+                            .transition(state.as_ref())
+                            .into_iter()
+                            .map(Rc::new)
+                            .collect();
+                        expansions.push(NodeExpansion {
+                            connection_label: ConnectionLabel::Execution(
+                                a.name.clone(),
+                                a.cost,
+                            ),
+                            tn: new_tn,
+                            states: new_states,
+                        });
+                    }
+                }
             }
         }
     }
@@ -68,7 +71,6 @@ pub struct NodeExpansion {
     pub connection_label: ConnectionLabel,
     pub tn: Rc<HTN>,
     pub states: Vec<Rc<HashSet<u32>>>,
-    pub outcome_probabilities: Vec<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,8 +99,8 @@ impl ConnectionLabel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain_description::DomainTasks, task_network::{Method, PrimitiveAction}};
-    use std::collections::{BTreeSet, HashMap};
+    use crate::{domain_description::DomainTasks, task_network::Method};
+    use std::collections::HashMap;
 
     #[test]
     pub fn expansion_correctness_test() {
@@ -163,26 +165,38 @@ mod tests {
                 (4, domain.get_id("p4")),
             ]),
         );
-        let state = HashSet::from([0, 3]);
-        let expansion = progress(Rc::new(tn), Rc::new(state));
-        assert_eq!(expansion.len(), 4);
-        let exp_p1: Vec<&NodeExpansion> = expansion
+        let state = Rc::new(HashSet::from([0, 3]));
+        let expansion = progress(Rc::new(tn), Rc::clone(&state));
+        assert_eq!(expansion.len(), 2); // m1 and m2
+
+        let tn2 = HTN::new(
+            BTreeSet::from([1, 4]),
+            vec![(1, 4)],
+            domain.clone(),
+            HashMap::from([
+                (1, domain.get_id("p1")),
+                (4, domain.get_id("p4")),
+            ]),
+        );
+        let expansion2 = progress(Rc::new(tn2), Rc::clone(&state));
+        assert_eq!(expansion2.len(), 1); // two states, resulting from p1 and p2 in one AND node
+        let p1_expansion = &expansion2[0];
+        // p1 is an execution edge, not a decomposition
+        assert!(matches!(
+            p1_expansion.connection_label,
+            ConnectionLabel::Execution(_, _)
+        ));
+        // p1 is non-deterministic with two outcomes, bundled together
+        assert_eq!(p1_expansion.states.len(), 2);
+        // p1 applied to state {0, 3}:
+        //   outcome 1: add {1}, del {3} => {0, 1}
+        //   outcome 2: add {2, 4}, del {}  => {0, 2, 3, 4}
+        let resulting_states: Vec<HashSet<_>> = p1_expansion
+            .states
             .iter()
-            .filter(|x| match &x.connection_label {
-                ConnectionLabel::Execution(x, 1) if x == "p1" => true,
-                _ => false,
-            })
+            .map(|s| s.as_ref().clone())
             .collect();
-        assert_eq!(exp_p1.len(), 1);
-        assert_eq!(exp_p1[0].states.len(), 2);
-        assert_eq!(exp_p1[0].tn.count_tasks(), 3);
-        let exp_t1: Vec<&NodeExpansion> = expansion
-            .iter()
-            .filter(|x| match x.connection_label {
-                ConnectionLabel::Decomposition(_, _) => true,
-                _ => false,
-            })
-            .collect();
-        assert_eq!(exp_t1.len(), 2);
+        assert!(resulting_states.contains(&HashSet::from([0, 1])));
+        assert!(resulting_states.contains(&HashSet::from([0, 2, 3, 4])));
     }
 }

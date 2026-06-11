@@ -119,12 +119,8 @@ fn compute_reach(
             // giving a fixed, consistent linearisation.
             if let Some(prim_expansion) = expansions.first() {
                 let mut successors: Vec<(usize, f64)> = Vec::new();
-                for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
-                    let p = prim_expansion
-                        .outcome_probabilities
-                        .get(i)
-                        .copied()
-                        .unwrap_or(1.0);
+                for (_i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                    let p = 1.0;
                     let succ_key = make_key(&prim_expansion.tn, outcome_state);
                     let succ_idx = get_or_insert(
                         succ_key,
@@ -238,7 +234,7 @@ fn compute_reach_incremental(
     let mut queue: VecDeque<(Rc<HTN>, Rc<HashSet<u32>>, usize, MemoKey)> = VecDeque::new();
     let mut successors: Vec<(usize, f64)> = Vec::new();
     for (i, outcome_state) in connector.states.iter().enumerate() {
-        let p = connector.outcome_probabilities.get(i).copied().unwrap_or(1.0);
+        let p = 1.0;
         let sk = make_key(&connector.tn, outcome_state);
         let si = get_or_insert_ext(
             sk,
@@ -346,12 +342,8 @@ fn compute_reach_incremental(
             // UC = ∅ — auto-execute first applicable primitive.
             if let Some(prim_expansion) = expansions.first() {
                 let mut prim_successors: Vec<(usize, f64)> = Vec::new();
-                for (i, outcome_state) in prim_expansion.states.iter().enumerate() {
-                    let p = prim_expansion
-                        .outcome_probabilities
-                        .get(i)
-                        .copied()
-                        .unwrap_or(1.0);
+                for (_i, outcome_state) in prim_expansion.states.iter().enumerate() {
+                    let p = 1.0;
                     let sk = make_key(&prim_expansion.tn, outcome_state);
                     let si = get_or_insert_ext(
                         sk,

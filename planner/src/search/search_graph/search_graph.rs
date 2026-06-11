@@ -167,12 +167,8 @@ impl SearchGraph {
                 action_type: expansion.connection_label,
                 outcome_probs: HashMap::new(),
             };
-            for (state_idx, state) in expansion.states.iter().enumerate() {
-                let outcome_prob = expansion
-                    .outcome_probabilities
-                    .get(state_idx)
-                    .copied()
-                    .unwrap_or(1.0);
+            for (_state_idx, state) in expansion.states.iter().enumerate() {
+                let outcome_prob = 1.0;
                 let visited_before = self.visited(expansion.tn.as_ref(), state.as_ref());
                 match visited_before {
                     Some(x) => {
