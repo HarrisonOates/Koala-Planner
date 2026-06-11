@@ -1,20 +1,19 @@
+#![allow(dead_code, unused_must_use)]
 use super::*;
 use crate::{
-    domain_description::{ClassicalDomain, DomainTasks, FONDProblem},
+    domain_description::FONDProblem,
     relaxation::RelaxedComposition,
-    search::{search_graph, StrongPolicy},
-    task_network::{Method, HTN},
+    search::StrongPolicy,
+    task_network::HTN,
 };
 use priority_queue::PriorityQueue;
 use search_node::{AStarStatus, SearchNode};
 use search_space::SearchSpace;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    iter::successors,
+    collections::{BTreeMap, HashMap, HashSet},
     rc::Rc,
-    string,
 };
 use weak_linearization::WeakLinearization;
 
@@ -131,7 +130,7 @@ pub fn a_star_search(
         }
         let successors = successor_fn(&mut space, parent.clone());
         space.install_successors(parent.clone(), successors, false);
-        'improve: for edge in parent.borrow().progressions.iter() {
+        for edge in parent.borrow().progressions.iter() {
             // Remove from open with old f value (before updating)
             if edge.next_node.borrow().status == AStarStatus::Open {
                 open.remove(edge.next_node.clone());
@@ -174,7 +173,7 @@ pub fn a_star_search(
             } // succ_ref lifetime
 
             // Insert back into open with new f value
-            if (edge.next_node.borrow().status == AStarStatus::Open) {
+            if edge.next_node.borrow().status == AStarStatus::Open  {
                 open.insert(edge.next_node.clone());
             }
         }

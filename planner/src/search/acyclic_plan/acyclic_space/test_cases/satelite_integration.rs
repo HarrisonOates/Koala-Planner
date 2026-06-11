@@ -1,6 +1,6 @@
-use crate::read_json_domain;
-use crate::search;
+use crate::domain_description::read_json_domain;
 use crate::search::acyclic_plan::acyclic_space;
+
 #[test]
 pub fn satelite_fond_domain() {
     let problem = read_json_domain("src/search/fixed_method/test_cases/satelite.json");

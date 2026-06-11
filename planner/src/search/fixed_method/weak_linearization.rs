@@ -1,10 +1,10 @@
+#![allow(dead_code)]
 use super::search_node::SearchNode;
 use crate::{domain_description::FONDProblem, task_network::HTN};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     rc::Rc,
-    string,
 };
 
 pub struct WeakLinearization {
