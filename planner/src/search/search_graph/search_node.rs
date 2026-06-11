@@ -88,9 +88,10 @@ impl SearchGraphNode {
         );
         let goal_state = encoder.compute_goal_state(&task_ids);
         let mut val = match h_type {
-            HeuristicType::HFF => h_ff(&encoder.domain, &relaxed_state, &goal_state),
-            HeuristicType::HAdd => h_add(&encoder.domain, &relaxed_state, &goal_state),
-            HeuristicType::HMax => h_max(&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HFF    => h_ff   (&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HAdd   => h_add  (&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HMax   => h_max  (&encoder.domain, &relaxed_state, &goal_state),
+            HeuristicType::HLMCut => h_lmcut(&encoder.domain, &relaxed_state, &goal_state),
         };
         
         // Compensate for the repetition of tasks

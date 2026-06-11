@@ -29,7 +29,7 @@ impl RelaxedComposition  {
         new_facts = new_facts.extend(bottom_up_facts);
 
         let new_actions = RelaxedComposition::encode(&domain, &new_facts);
-        let classic_domain = ClassicalDomain { facts: new_facts, actions: new_actions };
+        let classic_domain = ClassicalDomain::new(new_facts, new_actions);
         let tdg = TDG::new(&domain.init_tn);
         RelaxedComposition { domain: classic_domain, htn_tasks: domain.tasks.clone(), tdg: tdg }
     }
