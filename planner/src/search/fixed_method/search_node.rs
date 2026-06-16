@@ -1,18 +1,18 @@
+#![allow(dead_code)]
 use search_space::SearchSpace;
 
 use super::*;
 use crate::{
-    domain_description::{ClassicalDomain, DomainTasks, FONDProblem},
+    domain_description::FONDProblem,
     relaxation::RelaxedComposition,
-    task_network::{Applicability, Method, Task, HTN},
+    task_network::{Applicability, Task, HTN},
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     rc::Rc,
-    string,
 };
 
 #[derive(PartialEq, Eq)]
@@ -80,7 +80,7 @@ impl SearchNode {
         )
     }
 
-    pub fn to_string_tn(tn: &HTN, problem: &FONDProblem) -> Vec<String> {
+    pub fn to_string_tn(tn: &HTN, _problem: &FONDProblem) -> Vec<String> {
         let uncon_ids = tn.get_unconstrained_tasks();
         let mut sorted_uncon_ids: Vec<&u32> = uncon_ids.iter().collect();
         sorted_uncon_ids.sort_by(|a, b| a.cmp(b));

@@ -1,21 +1,23 @@
-use std::{collections::{HashSet, LinkedList, HashMap}, vec};
-use std::rc::Rc;
+use std::{
+    collections::{HashSet, LinkedList},
+    vec,
+};
 
-use crate::{domain_description::{DomainTasks, Facts}, task_network::HTN};
+use crate::domain_description::Facts;
 
 use super::*;
 
-
 #[derive(Debug)]
-pub struct PolicyOutput{
+pub struct PolicyOutput {
     pub task: String,
-    pub method: String 
+    pub method: String,
 }
 
 #[derive(Debug)]
 pub struct StrongPolicy {
     pub transitions: Vec<(PolicyNode, PolicyOutput)>,
     pub makespan: u16,
+    pub success_probability: f64,
 }
 
 impl StrongPolicy {
@@ -24,7 +26,13 @@ impl StrongPolicy {
         let mut policy = vec![];
         let mut visited = HashSet::new();
         let mut working_set: LinkedList<u32> = LinkedList::from([computation_history.root]);
-        let mut makespan = u16::MIN;;
+        let mut makespan = u16::MIN;
+        let success_probability = computation_history
+            .ids
+            .get(&computation_history.root)
+            .unwrap()
+            .borrow()
+            .success_probability;
         // TOOD: for each branch the execution history changes
         while !working_set.is_empty() {
             let id = working_set.pop_front().unwrap();
@@ -34,12 +42,15 @@ impl StrongPolicy {
                 visited.insert(id);
             }
             let node = computation_history.ids.get(&id).unwrap().borrow();
-            let state: HashSet<String> = node.state.as_ref().iter().map(|x| {
-                facts.get_fact(*x).clone()
-            }).collect();
+            let state: HashSet<String> = node
+                .state
+                .as_ref()
+                .iter()
+                .map(|x| facts.get_fact(*x).clone())
+                .collect();
             let input = PolicyNode {
                 tn: node.tn.clone(),
-                state: state
+                state: state,
             };
             // Is node terminal?
             match &node.connections {
@@ -53,17 +64,17 @@ impl StrongPolicy {
                             ConnectionLabel::Decomposition(name, method) => {
                                 let output = PolicyOutput {
                                     task: name.clone(),
-                                    method: method.clone()
+                                    method: method.clone(),
                                 };
                                 policy.push((input, output));
-                                for child in marked.children.iter(){
+                                for child in marked.children.iter() {
                                     working_set.push_back(*child);
                                 }
-                            },
+                            }
                             ConnectionLabel::Execution(name, _) => {
                                 let output = PolicyOutput {
                                     task: name.clone(),
-                                    method: "ε".to_string()
+                                    method: "ε".to_string(),
                                 };
                                 policy.push((input, output));
                                 for child in marked.children.iter() {
@@ -71,26 +82,32 @@ impl StrongPolicy {
                                 }
                             }
                         }
-                    }
-                    else {
+                    } else {
                         unreachable!()
                     }
                 }
-                None => {
-                    
-                }
-            } 
+                None => {}
+            }
         }
-        StrongPolicy { transitions: policy, makespan: makespan }
+        StrongPolicy {
+            transitions: policy,
+            makespan,
+            success_probability,
+        }
     }
 }
 
 impl std::fmt::Display for StrongPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         for (input, output) in self.transitions.iter() {
-            writeln!(f, "TN: {} \nState: {:?}\nTask: {}\nMethod: {}", input.tn, input.state, output.task, output.method);
-            writeln!(f, "---------------------------------------------");
+            writeln!(
+                f,
+                "TN: {} \nState: {:?}\nTask: {}\nMethod: {}",
+                input.tn, input.state, output.task, output.method
+            )?;
+            writeln!(f, "---------------------------------------------")?;
         }
+        writeln!(f, "Success probability: {:.4}", self.success_probability)?;
         Ok(())
     }
 }

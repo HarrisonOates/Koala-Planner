@@ -21,6 +21,18 @@ impl SearchGraph {
         }
     }
 
+    // Compute the success probability of an arc (hyperarc/connector)
+    // P(arc succeeds) = sum_i [ p_i * P(child_i succeeds) ]
+    fn arc_success_probability(&self, arc: &Connector) -> f64 {
+        let mut prob = 0.0;
+        for child_id in arc.children.iter() {
+            let child = self.ids.get(child_id).unwrap().borrow();
+            let outcome_prob = arc.outcome_probs.get(child_id).copied().unwrap_or(1.0);
+            prob += outcome_prob * child.success_probability;
+        }
+        prob
+    }
+
     // return parent ID if further revision is needed
     fn revise_node_cost(&mut self, id: &u32) -> Option<Vec<u32>> {
         let mut node = self.ids.get(id).unwrap().borrow_mut();
@@ -28,10 +40,12 @@ impl SearchGraph {
         match node.status {
             NodeStatus::Failed => {
                 node.cost = f32::INFINITY;
+                node.success_probability = 0.0;
                 return node.parents.clone();
             }
             NodeStatus::Solved => {
                 node.cost = 0.0;
+                node.success_probability = 1.0;
                 return node.parents.clone();
             }
             // If node is not terminal, check whether children terminated or not
@@ -40,6 +54,7 @@ impl SearchGraph {
                     NodeStatus::Failed => {
                         node.status = NodeStatus::Failed;
                         node.cost = f32::INFINITY;
+                        node.success_probability = 0.0;
                         node.clear_marks();
                         return node.parents.clone();
                     }
@@ -49,6 +64,9 @@ impl SearchGraph {
                             self.compute_min_cost(node.connections.as_ref().unwrap());
                         node.mark(arg_min);
                         node.cost = min_cost;
+                        // Set success probability from best arc
+                        let best_arc = &node.connections.as_ref().unwrap().children[arg_min as usize];
+                        node.success_probability = self.arc_success_probability(best_arc);
                         return node.parents.clone();
                     }
                     // children are not terminal
@@ -56,8 +74,13 @@ impl SearchGraph {
                         let (min_cost, arg_min) =
                             self.compute_min_cost(node.connections.as_ref().unwrap());
                         node.mark(arg_min);
-                        // If cost has changed
-                        if node.cost != min_cost {
+                        // Update success probability
+                        let best_arc = &node.connections.as_ref().unwrap().children[arg_min as usize];
+                        let new_prob = self.arc_success_probability(best_arc);
+                        let prob_changed = (node.success_probability - new_prob).abs() > 1e-9;
+                        node.success_probability = new_prob;
+                        // If cost or probability has changed
+                        if node.cost != min_cost || prob_changed {
                             node.cost = min_cost;
                             return node.parents.clone();
                         } else {
@@ -70,13 +93,16 @@ impl SearchGraph {
     }
 
     fn children_status(&self, connections: &NodeConnections) -> NodeStatus {
-        // Is there at least one path to continue?
         let mut all_failed = true;
         for arc in connections.children.iter() {
             match self.arc_status(arc) {
-                NodeStatus::Solved => return NodeStatus::Solved,
+                NodeStatus::Solved => {
+                    return NodeStatus::Solved;
+                },
                 NodeStatus::Failed => {},
-                NodeStatus::OnGoing => all_failed = false
+                NodeStatus::OnGoing => {
+                    all_failed = false;
+                }
             }
         }
         if all_failed {
@@ -86,13 +112,14 @@ impl SearchGraph {
         }
     }
 
-
     pub fn arc_status(&self, arc: &Connector) -> NodeStatus {
         let mut result = NodeStatus::Solved;
         for item in arc.children.iter() {
             let node = self.ids.get(&item).unwrap().borrow();
             match node.status {
-                NodeStatus::Failed => return NodeStatus::Failed,
+                NodeStatus::Failed => {
+                    return NodeStatus::Failed;
+                },
                 NodeStatus::OnGoing => result = NodeStatus::OnGoing,
                 NodeStatus::Solved => {}
             }

@@ -1,0 +1,348 @@
+{
+    "state_features": [
+        "+ontable[b2]",
+        "+ontable[b3]",
+        "+clear[b1]",
+        "+clear[b2]",
+        "+on[b2,b1]",
+        "+on[b3,b2]"
+    ],
+    "mutex_groups": [
+        "0 0 +ontable[b2]",
+        "1 1 +ontable[b3]",
+        "2 2 +clear[b1]",
+        "3 3 +clear[b2]",
+        "4 4 +on[b2,b1]",
+        "5 5 +on[b3,b2]"
+    ],
+    "further_strict_mutex_groups": [],
+    "further_non_strict_mutex_groups": [],
+    "known_invariants": [],
+    "actions": {
+        "confirm_on[b3,b2]": {
+            "cost": 1,
+            "precond": [
+                "+on[b3,b2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "confirm_on[b2,b1]": {
+            "cost": 1,
+            "precond": [
+                "+on[b2,b1]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "try_stack_prob[b3,b2]": {
+            "cost": 1,
+            "precond": [
+                "+ontable[b3]",
+                "+clear[b2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[b3,b2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+clear[b2]",
+                            "+ontable[b3]"
+                        ],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.75,
+                0.25
+            ]
+        },
+        "try_stack_prob[b2,b1]": {
+            "cost": 1,
+            "precond": [
+                "+ontable[b2]",
+                "+clear[b1]",
+                "+clear[b2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+on[b2,b1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [
+                            "+clear[b1]",
+                            "+ontable[b2]"
+                        ],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.75,
+                0.25
+            ]
+        }
+    },
+    "initial_state": [
+        "+clear[b2]",
+        "+clear[b1]",
+        "+ontable[b3]",
+        "+ontable[b2]"
+    ],
+    "goal": [
+        "-1"
+    ],
+    "initial_abstract_task": "__top[]",
+    "methods": {
+        "__top_method_0": {
+            "task": "__top[]",
+            "subtasks": [
+                "ensure_on[b2,b1,t0]",
+                "ensure_on[b3,b2,t0]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_1": {
+            "task": "ensure_on[b3,b2,t0]",
+            "subtasks": [
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_2": {
+            "task": "ensure_on[b3,b2,t0]",
+            "subtasks": [
+                "try_stack_prob[b3,b2]",
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<m_ensure_retry;m_ensure_retry_splitted_1[b3,b2,t0];_splitting_method_m_ensure_retry_splitted_1;1;0,-1>_5": {
+            "task": "ensure_on[b3,b2,t0]",
+            "subtasks": [
+                "try_stack_prob[b3,b2]",
+                "ensure_on[b3,b2,t1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_6": {
+            "task": "ensure_on[b3,b2,t1]",
+            "subtasks": [
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_7": {
+            "task": "ensure_on[b3,b2,t1]",
+            "subtasks": [
+                "try_stack_prob[b3,b2]",
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<m_ensure_retry;m_ensure_retry_splitted_1[b3,b2,t1];_splitting_method_m_ensure_retry_splitted_1;1;0,-1>_8": {
+            "task": "ensure_on[b3,b2,t1]",
+            "subtasks": [
+                "try_stack_prob[b3,b2]",
+                "ensure_on[b3,b2,t2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_9": {
+            "task": "ensure_on[b3,b2,t2]",
+            "subtasks": [
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_10": {
+            "task": "ensure_on[b3,b2,t2]",
+            "subtasks": [
+                "try_stack_prob[b3,b2]",
+                "confirm_on[b3,b2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_11": {
+            "task": "ensure_on[b2,b1,t0]",
+            "subtasks": [
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_12": {
+            "task": "ensure_on[b2,b1,t0]",
+            "subtasks": [
+                "try_stack_prob[b2,b1]",
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<m_ensure_retry;m_ensure_retry_splitted_1[b2,b1,t0];_splitting_method_m_ensure_retry_splitted_1;1;0,-1>_15": {
+            "task": "ensure_on[b2,b1,t0]",
+            "subtasks": [
+                "try_stack_prob[b2,b1]",
+                "ensure_on[b2,b1,t1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_16": {
+            "task": "ensure_on[b2,b1,t1]",
+            "subtasks": [
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_17": {
+            "task": "ensure_on[b2,b1,t1]",
+            "subtasks": [
+                "try_stack_prob[b2,b1]",
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<m_ensure_retry;m_ensure_retry_splitted_1[b2,b1,t1];_splitting_method_m_ensure_retry_splitted_1;1;0,-1>_18": {
+            "task": "ensure_on[b2,b1,t1]",
+            "subtasks": [
+                "try_stack_prob[b2,b1]",
+                "ensure_on[b2,b1,t2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_ensure_done_19": {
+            "task": "ensure_on[b2,b1,t2]",
+            "subtasks": [
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": []
+        },
+        "m_ensure_try_once_20": {
+            "task": "ensure_on[b2,b1,t2]",
+            "subtasks": [
+                "try_stack_prob[b2,b1]",
+                "confirm_on[b2,b1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        }
+    },
+    "tasks": [
+        "__top[]",
+        "ensure_on[b3,b2,t0]",
+        "ensure_on[b3,b2,t1]",
+        "ensure_on[b3,b2,t2]",
+        "ensure_on[b2,b1,t0]",
+        "ensure_on[b2,b1,t1]",
+        "ensure_on[b2,b1,t2]"
+    ]
+}

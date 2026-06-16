@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+#![allow(dead_code)]
+use std::collections::{HashMap, HashSet};
 
-use super::NodeExpansion;
 use super::ConnectionLabel;
 
 #[derive(Debug)]
 pub struct NodeConnections {
-    pub children: Vec<Connector>
+    pub children: Vec<Connector>,
 }
 
 #[derive(Debug)]
@@ -13,7 +13,8 @@ pub struct Connector {
     pub children: HashSet<u32>,
     pub cost: f32,
     pub is_marked: bool,
-    pub action_type: ConnectionLabel
+    pub action_type: ConnectionLabel,
+    pub outcome_probs: HashMap<u32, f64>,
 }
 
 impl NodeConnections {
@@ -54,26 +55,28 @@ mod test {
     #[test]
     pub fn marking_test() {
         let arc1 = Connector {
-            children: HashSet::from([1,2,3]),
+            children: HashSet::from([1, 2, 3]),
             cost: 0.0,
             is_marked: false,
-            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string())
-            
+            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m1".to_string()),
+            outcome_probs: HashMap::new(),
         };
         let arc2 = Connector {
-            children: HashSet::from([5,4]),
+            children: HashSet::from([5, 4]),
             cost: 0.0,
             is_marked: true,
-            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m2".to_string())
+            action_type: ConnectionLabel::Decomposition("t1".to_string(), "m2".to_string()),
+            outcome_probs: HashMap::new(),
         };
         let arc3 = Connector {
-            children: HashSet::from([7,54]),
+            children: HashSet::from([7, 54]),
             cost: 0.0,
             is_marked: false,
-            action_type: ConnectionLabel::Execution("p1".to_string(), 1)
+            action_type: ConnectionLabel::Execution("p1".to_string(), 1),
+            outcome_probs: HashMap::new(),
         };
         let mut connections = NodeConnections {
-            children: vec![arc1, arc2, arc3]
+            children: vec![arc1, arc2, arc3],
         };
         connections.mark(2);
         println!("{:?}", connections);

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use super::*;
 
 pub fn h_ff(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>) -> f32 {
@@ -14,70 +14,69 @@ pub fn h_ff(domain: &ClassicalDomain, state: &HashSet<u32>, goal: &HashSet<u32>)
 fn plan_length(domain: &ClassicalDomain, graphplan: GraphPlan, goal_state: &HashSet<u32>) -> u32 {
     let mut len = 0;
     let mut g = graphplan.compute_goal_indices(goal_state);
-    let mut marks = HashMap::new();
-    for i in 0..graphplan.depth + 1 {
-        marks.insert(i, HashSet::new());
-    }
-    for i in (1..graphplan.depth + 1).rev() {
-        if g.get(&i).is_none() {
-            continue;
+    let depth = graphplan.depth as usize;
+    let n_facts = domain.facts.count() as usize;
+
+    // Flat bool array: marks[layer * n_facts + fact_id].
+    // Replaces Vec<HashSet<u32>> to avoid per-layer HashSet allocations.
+    let mut marks = vec![false; (depth + 1) * n_facts];
+
+    // Initial-state facts as a bool array for O(1) membership tests.
+    let initial_facts_set = graphplan.get_fact_layer(0);
+    let mut in_initial = vec![false; n_facts];
+    for &f in &initial_facts_set {
+        if (f as usize) < n_facts {
+            in_initial[f as usize] = true;
         }
-        let open_goals: HashSet<u32> = g
-            .get(&i)
-            .unwrap()
-            .difference(marks.get(&i).unwrap())
+    }
+
+    for i in (1..=depth).rev() {
+        let i = i as u32;
+        let Some(goals_at_layer) = g.get(&i) else { continue };
+        let layer_off = i as usize * n_facts;
+        let prev_off = (i as usize - 1) * n_facts;
+
+        let mut open_goals: Vec<u32> = goals_at_layer
+            .iter()
+            .filter(|&&f| !marks[layer_off + f as usize])
             .cloned()
             .collect();
-        for open_goal in open_goals.iter() {
-            let actions = graphplan.get_action_layer(i - 1);
-            let mut actions = domain.get_actions_by_index(actions);
-            // select only actions that produce this goal
-            actions = actions
+        open_goals.sort_unstable(); // deterministic order: eliminates HashSet iteration variance
+
+        for &open_goal in &open_goals {
+            // Intra-layer re-check: an earlier goal in this layer may have already
+            // covered open_goal as a side-effect of its chosen action.
+            if marks[layer_off + open_goal as usize] {
+                continue;
+            }
+
+            // Direct lookup via effect_to_actions: find the cheapest action at layer i-1
+            // that produces open_goal. Tiebreak by action index for determinism.
+            let min_action_idx = graphplan.effect_to_actions[open_goal as usize]
                 .iter()
-                .filter(|x| {
-                    if x.add_effects.len() > 1 {
-                        panic!("actions are not determinized")
-                    }
-                    x.add_effects[0].contains(open_goal)
-                })
-                .map(|x| *x)
-                .collect();
-            //select min cost action
-            let min_action = *actions
-                .iter()
-                .reduce(|acc, e| if acc.cost > e.cost { e } else { acc })
+                .filter(|&&a| graphplan.action_layer[a] == i - 1)
+                .min_by_key(|&&a| (domain.actions[a].cost, a))
+                .copied()
                 .unwrap();
+            let min_action = &domain.actions[min_action_idx];
             len += 1;
-            // add preconds as new goals
-            // // not satisifed at the initial state
-            let mut open_preconds: HashSet<u32> = min_action
-                .pre_cond
-                .difference(&graphplan.get_fact_layer(0))
-                .cloned()
-                .collect();
-            // // not satisfied by action
-            open_preconds = open_preconds
-                .difference(marks.get(&(i - 1)).unwrap())
-                .cloned()
-                .collect();
-            // add open preconds to their corresponding layer
-            for precond in open_preconds.iter() {
-                let membership_layer = graphplan.facts.get(&precond).unwrap();
-                match g.get_mut(membership_layer) {
-                    Some(set) => {
-                        set.insert(precond.clone());
-                    }
-                    None => {
-                        g.insert(*membership_layer, HashSet::from([*precond]));
-                    }
+
+            // Add unsatisfied preconditions as new subgoals at their graphplan layer.
+            for &precond in &min_action.pre_cond {
+                let pi = precond as usize;
+                if pi < n_facts && !in_initial[pi] && !marks[prev_off + pi] {
+                    let layer = graphplan.fact_placed[precond as usize];
+                    g.entry(layer).or_default().insert(precond);
                 }
             }
-            for add in min_action.add_effects[0].iter() {
-                if let Some(set) = marks.get_mut(&i) {
-                    set.insert(add.clone());
-                }
-                if let Some(set) = marks.get_mut(&(i - 1)) {
-                    set.insert(add.clone());
+
+            // Mark all effects: at layer_off (prevents re-selection as goal at this layer)
+            // and at prev_off (prevents re-adding as subgoal for other goals at this layer).
+            for &add in &min_action.add_effects[0] {
+                let ai = add as usize;
+                if ai < n_facts {
+                    marks[layer_off + ai] = true;
+                    marks[prev_off + ai] = true;
                 }
             }
         }
@@ -89,7 +88,7 @@ fn plan_length(domain: &ClassicalDomain, graphplan: GraphPlan, goal_state: &Hash
 mod test {
     use super::*;
     use crate::domain_description::Facts;
-    use crate::heuristics::PrimitiveAction;
+    use crate::task_network::PrimitiveAction;
 
     pub fn generate_domain() -> ClassicalDomain {
         let p1 = PrimitiveAction::new(
@@ -136,5 +135,28 @@ mod test {
         let domain = generate_domain();
         let h = h_ff(&domain, &HashSet::from([0]), &HashSet::from([4]));
         assert_eq!(h, 4.0);
+    }
+
+    /// An action that simultaneously achieves two goal facts must be counted once,
+    /// not twice. This verifies the intra-layer marks re-check.
+    #[test]
+    pub fn multi_goal_same_action_counted_once() {
+        // p_joint: pre={0}, add={1, 2}  — achieves both goals in one step
+        let p_joint = PrimitiveAction::new(
+            "p_joint".to_string(),
+            1,
+            HashSet::from([0]),
+            vec![HashSet::from([1, 2])],
+            vec![HashSet::new()],
+        );
+        let facts = Facts::new(vec![
+            "f0".to_owned(),
+            "f1".to_owned(),
+            "f2".to_owned(),
+        ]);
+        let domain = ClassicalDomain::new(facts, vec![p_joint]);
+        // Both goals 1 and 2 are achieved by p_joint in one step: h_ff should be 1.
+        let h = h_ff(&domain, &HashSet::from([0u32]), &HashSet::from([1u32, 2u32]));
+        assert_eq!(h, 1.0);
     }
 }

@@ -1,5 +1,4 @@
-#![allow(unused)]
-use std::{collections::{HashSet, HashMap}, env};
+use std::env;
 
 extern crate bit_vec;
 
@@ -11,16 +10,14 @@ mod search;
 mod task_network;
 
 use crate::search::fixed_method::heuristic_factory;
+use crate::search::htn_andstar::TiebreakerKind;
 use crate::search::{HeuristicType, SearchResult};
 use domain_description::{read_json_domain, FONDProblem};
-use heuristics::{h_add, h_ff, h_max};
-use relaxation::RelaxedComposition;
 use search::{
     astar::AStarResult,
-    goal_checks::{is_goal_strong_od, is_goal_weak_ld},
-    search_node::{get_successors_systematic, SearchNode},
+    goal_checks::is_goal_strong_od,
+    search_node::get_successors_systematic,
 };
-use task_network::HTN;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -30,76 +27,82 @@ fn main() {
     }
     let problem = read_json_domain(&args[1]);
 
-    // TODO: Refactor flexible method and fixed method to accept
-    // heuristic input of the same type, so we only need one of the
-    // following two match expressions
+    // Parse --tiebreak argument (AND* only)
+    let tiebreaker = args
+        .iter()
+        .position(|x| x == "--tiebreak")
+        .and_then(|i| args.get(i + 1))
+        .map(|v| match v.as_str() {
+            "policy-size" => TiebreakerKind::PolicySize,
+            "closure" => TiebreakerKind::ClosureFirst,
+            "combined" => TiebreakerKind::Combined,
+            other => panic!(
+                "Unknown tiebreak '{}': use policy-size | closure | combined",
+                other
+            ),
+        })
+        .unwrap_or(TiebreakerKind::NoTiebreak);
 
-    let heuristic_flexible = match args.get(3) {
-        Some(flag) => match flag.as_str() {
-            "--add" => {
-                println!("Using Add heuristic");
-                HeuristicType::HAdd
-            },
-            "--max" => {
-                println!("Using Max heuristic");
-                HeuristicType::HMax
-            },
-            "--ff" => {
-                println!("Using FF heuristic");
-                HeuristicType::HFF
-            },
-            _ => panic!("Unknown heuristic")
-        },
-        None => {
-            panic!("Expected heuristic flag")
-        }
-    };
-
-    let heuristic_fixed = match args.get(3) {
-        Some(flag) => match flag.as_str() {
-            "--add" => {
-                heuristic_factory::create_function_with_heuristic(h_add)
-            },
-            "--max" => {
-                heuristic_factory::create_function_with_heuristic(h_max)
-            },
-            "--ff" => {
-                heuristic_factory::create_function_with_heuristic(h_ff)
-            },
-            _ => panic!("Did not recognise flag {}", flag),
-        },
-        None => {
-            panic!("Expected heuristic flag");
-        }
-    };
+    // Shared heuristic parsing across all solver modes
+    let h_type: HeuristicType = args
+        .iter()
+        .find_map(|a| match a.as_str() {
+            "--add"   => Some(HeuristicType::HAdd),
+            "--max"   => Some(HeuristicType::HMax),
+            "--ff"    => Some(HeuristicType::HFF),
+            "--lmcut" => Some(HeuristicType::HLMCut),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("Expected a heuristic flag: --ff | --add | --max | --lmcut"));
 
     match args.get(2) {
         Some(flag) => match flag.as_str() {
             "--fixed" => {
                 println!("Running fixed method solver");
-                fixed_method(&problem, heuristic_fixed)
-            },
+                fixed_method(&problem, heuristic_factory::create_function_with_heuristic(h_type.as_classical_fn()))
+            }
             "--flexible" => {
-                println!("Running method based solver");
-                method_based(&problem, heuristic_flexible)
-            },
-            _ => panic!("Did not recognise flag {}", flag)
+                println!("Running AO* flexible solver");
+                ao_star(&problem, h_type)
+            }
+            "--andstar-fond" => {
+                println!("Running HTN-AND* FOND solver (min-cost)");
+                println!("Tiebreaker: {:?}", tiebreaker);
+                htn_andstar_fond(&problem, h_type, tiebreaker)
+            }
+            "--fixed-ld" => {
+                println!("Running fixed strong-LD solver");
+                fixed_ld(&problem, heuristic_factory::create_function_with_heuristic(h_type.as_classical_fn()))
+            }
+            _ => panic!("Did not recognise flag {}", flag),
         },
-        None => method_based(&problem, heuristic_flexible),
+        None => ao_star(&problem, h_type),
     }
 }
 
-fn method_based(problem: &FONDProblem, h_type: HeuristicType) {
+fn ao_star(problem: &FONDProblem, h_type: HeuristicType) {
     let (solution, stats) = search::AOStarSearch::run(problem, h_type);
+    print!("{}", stats);
+    match solution {
+        SearchResult::Success(policy) => {
+            println!("makespan: {}", policy.makespan);
+            println!("policy entries: {}", policy.transitions.len());
+            print!("{}", policy);
+        }
+        SearchResult::NoSolution => {
+            println!("Problem has no solution");
+        }
+    }
+}
+
+fn htn_andstar_fond(problem: &FONDProblem, h_type: HeuristicType, tiebreaker: TiebreakerKind) {
+    let (solution, stats) = search::htn_andstar::run(problem, h_type, tiebreaker);
     print!("{}", stats);
     match solution {
         SearchResult::Success(x) => {
             println!("makespan: {}", x.makespan);
-            println!("policy enteries: {}", x.transitions.len());
-            // if (stats.search_nodes < 50) {
-            //     println!("***************************");
-            //     println!("{}", x);
-            // }
+            println!("policy entries: {}", x.transitions.len());
+            print!("{}", x);
         }
         SearchResult::NoSolution => {
             println!("Problem has no solution");
@@ -116,21 +119,31 @@ fn fixed_method(problem: &FONDProblem, heuristic: heuristic_factory::HeuristicFn
         is_goal_strong_od,
     );
     println!("{}", stats);
-    // println!(
-    //     "Number of maybe-isomorphic buckets: {}",
-    //     stats.space.maybe_isomorphic_buckets.len()
-    // );
     if let AStarResult::Strong(policy) = solution {
         println!("Solution was found");
-        println!("# of policy enteries: {}", policy.transitions.len());
-        // if (stats.space.total_nodes < 50) {
-        //     println!("***************************");
-        //     println!("{}", policy);
-        // }
+        println!("# of policy entries: {}", policy.transitions.len());
+        println!("Success probability: {:.4}", policy.success_probability);
     } else {
         println!("Problem has no solution");
     }
-    // if (stats.space.total_nodes < 50) {
-    //     println!("{}", stats.space.to_string(problem));
-    // }
+}
+
+fn fixed_ld(problem: &FONDProblem, heuristic: heuristic_factory::HeuristicFn) {
+    use search::fixed_method::goal_checks::is_goal_strong_ld;
+    let (solution, stats) = search::fixed_method::astar::a_star_search(
+        &problem,
+        heuristic,
+        get_successors_systematic,
+        || 1.0,
+        is_goal_strong_ld,
+    );
+    println!("{}", stats);
+    if let AStarResult::Strong(policy) = solution {
+        println!("Solution was found");
+        println!("# of policy entries: {}", policy.transitions.len());
+        println!("Success probability: {:.4}", policy.success_probability);
+        print!("{}", policy);
+    } else {
+        println!("Problem has no solution");
+    }
 }

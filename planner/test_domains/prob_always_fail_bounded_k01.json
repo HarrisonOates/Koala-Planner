@@ -1,0 +1,89 @@
+{
+    "state_features": [
+        "+done[]"
+    ],
+    "mutex_groups": [
+        "0 0 +done[]"
+    ],
+    "further_strict_mutex_groups": [],
+    "further_non_strict_mutex_groups": [],
+    "known_invariants": [],
+    "actions": {
+        "gate[]": {
+            "cost": 1,
+            "precond": [
+                "+done[]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "try[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    "initial_state": [],
+    "goal": [
+        "-1"
+    ],
+    "initial_abstract_task": "__top[]",
+    "methods": {
+        "<__top_method;loop[t0];m_base;0;-1,-2>_0": {
+            "task": "__top[]",
+            "subtasks": [
+                "try[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        }
+    },
+    "tasks": [
+        "__top[]"
+    ]
+}
