@@ -1,0 +1,277 @@
+{
+    "state_features": [
+        "+done[]"
+    ],
+    "mutex_groups": [
+        "0 0 +done[]"
+    ],
+    "further_strict_mutex_groups": [],
+    "further_non_strict_mutex_groups": [],
+    "known_invariants": [],
+    "actions": {
+        "gate[]": {
+            "cost": 1,
+            "precond": [
+                "+done[]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "try_0[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.16666667,
+                0.83333333
+            ]
+        },
+        "try_1[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.33333333,
+                0.66666667
+            ]
+        },
+        "try_2[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "try_3[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.66666667,
+                0.33333333
+            ]
+        },
+        "try_4[]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.83333333,
+                0.16666667
+            ]
+        }
+    },
+    "initial_state": [],
+    "goal": [
+        "-1"
+    ],
+    "initial_abstract_task": "__top[]",
+    "methods": {
+        "__top_method_0": {
+            "task": "__top[]",
+            "subtasks": [
+                "solve[]"
+            ],
+            "orderings": []
+        },
+        "m_solve_0_1": {
+            "task": "solve[]",
+            "subtasks": [
+                "try_0[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_solve_1_4": {
+            "task": "solve[]",
+            "subtasks": [
+                "try_1[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_solve_2_7": {
+            "task": "solve[]",
+            "subtasks": [
+                "try_2[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_solve_3_10": {
+            "task": "solve[]",
+            "subtasks": [
+                "try_3[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_solve_4_13": {
+            "task": "solve[]",
+            "subtasks": [
+                "try_4[]",
+                "gate[]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        }
+    },
+    "tasks": [
+        "__top[]",
+        "solve[]"
+    ]
+}

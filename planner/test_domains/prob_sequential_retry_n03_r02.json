@@ -1,0 +1,312 @@
+{
+    "state_features": [
+        "+done[s0]",
+        "+done[s1]",
+        "+done[s2]"
+    ],
+    "mutex_groups": [
+        "0 0 +done[s0]",
+        "1 1 +done[s1]",
+        "2 2 +done[s2]"
+    ],
+    "further_strict_mutex_groups": [],
+    "further_non_strict_mutex_groups": [],
+    "known_invariants": [],
+    "actions": {
+        "gate_phase[s2]": {
+            "cost": 1,
+            "precond": [
+                "+done[s2]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "gate_phase[s1]": {
+            "cost": 1,
+            "precond": [
+                "+done[s1]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "gate_phase[s0]": {
+            "cost": 1,
+            "precond": [
+                "+done[s0]"
+            ],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                1.0
+            ]
+        },
+        "try_phase[s2]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[s2]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "try_phase[s1]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[s1]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        },
+        "try_phase[s0]": {
+            "cost": 1,
+            "precond": [],
+            "effects": [
+                {
+                    "add_eff": {
+                        "unconditional": [
+                            "+done[s0]"
+                        ],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                },
+                {
+                    "add_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    },
+                    "del_eff": {
+                        "unconditional": [],
+                        "conditional": []
+                    }
+                }
+            ],
+            "probability": [
+                0.5,
+                0.5
+            ]
+        }
+    },
+    "initial_state": [],
+    "goal": [
+        "-1"
+    ],
+    "initial_abstract_task": "__top[]",
+    "methods": {
+        "__top_method_0": {
+            "task": "__top[]",
+            "subtasks": [
+                "do_phase[s0,s0r0]",
+                "do_phase[s1,s1r0]",
+                "do_phase[s2,s2r0]"
+            ],
+            "orderings": [
+                [
+                    1,
+                    2
+                ],
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "m_base_1": {
+            "task": "do_phase[s2,s2r0]",
+            "subtasks": [
+                "try_phase[s2]",
+                "gate_phase[s2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<<m_recurse;m_recurse_splitted_1[s2,s2r0];_splitting_method_m_recurse_splitted_1;1;0,-1>;do_phase[s2,s2r1];m_base;1;0,-1,-2>_4": {
+            "task": "do_phase[s2,s2r0]",
+            "subtasks": [
+                "try_phase[s2]",
+                "try_phase[s2]",
+                "gate_phase[s2]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    2
+                ],
+                [
+                    0,
+                    1
+                ],
+                [
+                    1,
+                    2
+                ]
+            ]
+        },
+        "m_base_5": {
+            "task": "do_phase[s1,s1r0]",
+            "subtasks": [
+                "try_phase[s1]",
+                "gate_phase[s1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<<m_recurse;m_recurse_splitted_1[s1,s1r0];_splitting_method_m_recurse_splitted_1;1;0,-1>;do_phase[s1,s1r1];m_base;1;0,-1,-2>_8": {
+            "task": "do_phase[s1,s1r0]",
+            "subtasks": [
+                "try_phase[s1]",
+                "try_phase[s1]",
+                "gate_phase[s1]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    2
+                ],
+                [
+                    0,
+                    1
+                ],
+                [
+                    1,
+                    2
+                ]
+            ]
+        },
+        "m_base_9": {
+            "task": "do_phase[s0,s0r0]",
+            "subtasks": [
+                "try_phase[s0]",
+                "gate_phase[s0]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    1
+                ]
+            ]
+        },
+        "<<m_recurse;m_recurse_splitted_1[s0,s0r0];_splitting_method_m_recurse_splitted_1;1;0,-1>;do_phase[s0,s0r1];m_base;1;0,-1,-2>_12": {
+            "task": "do_phase[s0,s0r0]",
+            "subtasks": [
+                "try_phase[s0]",
+                "try_phase[s0]",
+                "gate_phase[s0]"
+            ],
+            "orderings": [
+                [
+                    0,
+                    2
+                ],
+                [
+                    0,
+                    1
+                ],
+                [
+                    1,
+                    2
+                ]
+            ]
+        }
+    },
+    "tasks": [
+        "__top[]",
+        "do_phase[s2,s2r0]",
+        "do_phase[s1,s1r0]",
+        "do_phase[s0,s0r0]"
+    ]
+}

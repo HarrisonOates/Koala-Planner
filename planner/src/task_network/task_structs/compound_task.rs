@@ -1,10 +1,9 @@
-use std::hash::Hash;
+#![allow(dead_code)]
 
 use super::Method;
 
-#[derive(Debug)]
-#[derive(Clone)]
-pub struct CompoundTask{
+#[derive(Debug, Clone)]
+pub struct CompoundTask {
     pub name: String,
     pub methods: Vec<Method>,
 }

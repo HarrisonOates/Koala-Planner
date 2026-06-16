@@ -110,7 +110,7 @@ pub fn make_key(tn: &HTN, state: &HashSet<u32>) -> MemoKey {
     )
 }
 
-/// Controls the AND* search objective (MinCost for standard FOND domains).
+/// Controls the AND* search objective.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchMode {
     MinCost,

@@ -1,7 +1,6 @@
 use super::*;
 use std::{
-    cell::RefCell,
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::HashSet,
     rc::Rc,
 };
 
@@ -71,6 +70,7 @@ pub struct NodeExpansion {
     pub connection_label: ConnectionLabel,
     pub tn: Rc<HTN>,
     pub states: Vec<Rc<HashSet<u32>>>,
+    pub outcome_probabilities: Vec<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,8 +99,8 @@ impl ConnectionLabel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain_description::DomainTasks, task_network::Method};
-    use std::collections::HashMap;
+    use crate::{domain_description::DomainTasks, task_network::{Method, PrimitiveAction}};
+    use std::collections::{BTreeSet, HashMap};
 
     #[test]
     pub fn expansion_correctness_test() {

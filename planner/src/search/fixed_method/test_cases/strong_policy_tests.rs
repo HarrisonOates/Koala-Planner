@@ -136,16 +136,19 @@ pub fn strong_od_problem_1() {
                 a.clone(),
                 vec![],
                 vec![(vec![f1.clone()], vec![]), (vec![f2.clone()], vec![])],
+                vec![0.5, 0.5],
             ),
             (
                 b.clone(),
                 vec![f1.clone()],
                 vec![(vec![f2.clone()], vec![])],
+                vec![1.0],
             ),
             (
                 c.clone(),
                 vec![f2.clone()],
                 vec![(vec![f1.clone()], vec![])],
+                vec![1.0],
             ),
         ],
         vec![
@@ -198,16 +201,19 @@ pub fn strong_od_problem_2() {
                 a.clone(),
                 vec![],
                 vec![(vec![f1.clone()], vec![]), (vec![f2.clone()], vec![])],
+                vec![0.5, 0.5],
             ),
             (
                 b.clone(),
                 vec![f1.clone()],
                 vec![(vec![f2.clone()], vec![])],
+                vec![1.0],
             ),
             (
                 c.clone(),
                 vec![f2.clone()],
                 vec![(vec![f1.clone()], vec![])],
+                vec![1.0],
             ),
         ],
         vec![(

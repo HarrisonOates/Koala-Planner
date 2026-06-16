@@ -25,7 +25,7 @@ fn main() {
         println!("The path to the problem file is not given.");
         return;
     }
-    let problem = read_json_domain(&args[1]);
+    let mut problem = read_json_domain(&args[1]);
 
     // Parse --tiebreak argument (AND* only)
     let tiebreaker = args

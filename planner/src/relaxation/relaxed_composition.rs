@@ -118,7 +118,7 @@ impl RelaxedComposition {
                     let top_down_precond = facts.get_id(&(p.name.clone() + "_reachable"));
                     let mut preconds = HashSet::from([top_down_precond]);
                     preconds.extend(p.pre_cond.clone());
-                    let new_action = PrimitiveAction::new(
+                    let new_action = PrimitiveAction::new_with_probabilities(
                         p.name.clone(),
                         p.cost,
                         preconds,

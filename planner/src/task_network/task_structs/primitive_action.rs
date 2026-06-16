@@ -1,14 +1,16 @@
-use std::{collections::HashSet, hash::Hash};
+#![allow(dead_code)]
+use std::collections::HashSet;
 
 use crate::task_network::applicability::Applicability;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct PrimitiveAction{
+pub struct PrimitiveAction {
     pub name: String,
     pub cost: u32,
     pub pre_cond: HashSet<u32>,
     pub add_effects: Vec<HashSet<u32>>,
     pub del_effects: Vec<HashSet<u32>>,
+    pub probabilities: Vec<f64>,
 }
 
 impl PrimitiveAction {
@@ -19,12 +21,37 @@ impl PrimitiveAction {
         add_effects: Vec<HashSet<u32>>,
         del_effects: Vec<HashSet<u32>>,
     ) -> Self {
+        let n = if add_effects.is_empty() {
+            1
+        } else {
+            add_effects.len()
+        };
+        let probabilities = vec![1.0 / n as f64; n];
         PrimitiveAction {
             name,
             cost,
             pre_cond,
             add_effects,
             del_effects,
+            probabilities,
+        }
+    }
+
+    pub fn new_with_probabilities(
+        name: String,
+        cost: u32,
+        pre_cond: HashSet<u32>,
+        add_effects: Vec<HashSet<u32>>,
+        del_effects: Vec<HashSet<u32>>,
+        probabilities: Vec<f64>,
+    ) -> Self {
+        PrimitiveAction {
+            name,
+            cost,
+            pre_cond,
+            add_effects,
+            del_effects,
+            probabilities,
         }
     }
 
@@ -36,7 +63,7 @@ impl PrimitiveAction {
         &self,
         add_extension: HashSet<u32>,
         del_extension: HashSet<u32>,
-        precond_extension: HashSet<u32>
+        precond_extension: HashSet<u32>,
     ) -> PrimitiveAction {
         let mut new_add_effects = self.add_effects.clone();
         let mut new_del_effects = self.del_effects.clone();
@@ -52,15 +79,19 @@ impl PrimitiveAction {
         let mut new_precond = self.pre_cond.clone();
         new_precond.extend(precond_extension);
         PrimitiveAction {
-            name: self.name.clone(), cost: self.cost, pre_cond: new_precond,
-            add_effects: new_add_effects, del_effects: new_del_effects
+            name: self.name.clone(),
+            cost: self.cost,
+            pre_cond: new_precond,
+            add_effects: new_add_effects,
+            del_effects: new_del_effects,
+            probabilities: self.probabilities.clone(),
         }
     }
 
     pub fn delete_relax(&self) -> PrimitiveAction {
         let n_effects = self.add_effects.len() as u32;
         let mut new_del_effects = vec![];
-        for i in 0..n_effects {
+        for _i in 0..n_effects {
             new_del_effects.push(HashSet::new());
         }
         PrimitiveAction {
@@ -68,31 +99,37 @@ impl PrimitiveAction {
             cost: self.cost,
             pre_cond: self.pre_cond.clone(),
             add_effects: self.add_effects.clone(),
-            del_effects: new_del_effects
+            del_effects: new_del_effects,
+            probabilities: self.probabilities.clone(),
         }
     }
 
     pub fn determinize(&self) -> Vec<PrimitiveAction> {
         let mut result = vec![];
         let mut counter = 0;
-        for (add, del) in self.add_effects.iter().zip(self.del_effects.iter()) {
+        for ((add, del), prob) in self
+            .add_effects
+            .iter()
+            .zip(self.del_effects.iter())
+            .zip(self.probabilities.iter())
+        {
             let new_action = PrimitiveAction {
                 name: self.name.clone() + "__determinized_" + &counter.to_string(),
                 cost: self.cost,
                 pre_cond: self.pre_cond.clone(),
                 add_effects: vec![add.clone()],
-                del_effects: vec![del.clone()]
+                del_effects: vec![del.clone()],
+                probabilities: vec![*prob],
             };
             result.push(new_action);
-            counter+=1;
+            counter += 1;
         }
         result
     }
 }
 
 impl Applicability for PrimitiveAction {
-    fn is_applicable(&self, state: &HashSet<u32>) -> bool
-    {
+    fn is_applicable(&self, state: &HashSet<u32>) -> bool {
         for condition in self.pre_cond.iter() {
             if !state.contains(condition) {
                 return false;
@@ -107,12 +144,12 @@ impl Applicability for PrimitiveAction {
         if self.add_effects.len() == 0 {
             return vec![state.clone()];
         }
-        for (add_eff, del_eff) in self.add_effects.iter().zip(self.del_effects.iter()){
+        for (add_eff, del_eff) in self.add_effects.iter().zip(self.del_effects.iter()) {
             let mut new_state: HashSet<u32> = state
-            .iter()
-            .cloned()
-            .filter(|x| !del_eff.contains(x))
-            .collect();
+                .iter()
+                .cloned()
+                .filter(|x| !del_eff.contains(x))
+                .collect();
             for add in add_eff.iter() {
                 new_state.insert(add.clone());
             }
@@ -147,7 +184,7 @@ mod tests {
 
     #[test]
     pub fn determinstic_transition_test() {
-        let mut state = HashSet::from([0, 1]);
+        let state = HashSet::from([0, 1]);
         let precond = HashSet::from([0, 1]);
         let action = PrimitiveAction::new(
             "Action1".to_string(),
@@ -164,13 +201,13 @@ mod tests {
 
     #[test]
     pub fn non_determinstic_transition_test() {
-        let mut state = HashSet::from([0, 1]);
+        let state = HashSet::from([0, 1]);
         let precond = HashSet::from([0, 1]);
         let action = PrimitiveAction::new(
             "Action1".to_string(),
             1,
             precond,
-            vec![HashSet::from([2]), HashSet::from([3,4,5])],
+            vec![HashSet::from([2]), HashSet::from([3, 4, 5])],
             vec![HashSet::from([0]), HashSet::from([1, 3])],
         );
         let new_states = action.transition(&state);
@@ -192,7 +229,7 @@ mod tests {
             "NDAction1".to_string(),
             1,
             precond.clone(),
-            vec![HashSet::from([2]), HashSet::from([3,4,5])],
+            vec![HashSet::from([2]), HashSet::from([3, 4, 5])],
             vec![HashSet::from([0]), HashSet::from([1, 3])],
         );
         assert_eq!(nd_action.is_deterministic(), false);
@@ -213,16 +250,19 @@ mod tests {
             "NDAction1".to_string(),
             1,
             precond.clone(),
-            vec![HashSet::from([2]), HashSet::from([3,4,5])],
+            vec![HashSet::from([2]), HashSet::from([3, 4, 5])],
             vec![HashSet::from([0]), HashSet::from([1, 3])],
         );
         let new_action = action.augment(
-            HashSet::from([4,18,20]),
+            HashSet::from([4, 18, 20]),
             HashSet::from([3, 6]),
-            HashSet::from([12,9])
+            HashSet::from([12, 9]),
         );
         assert_eq!(new_action.is_applicable(&HashSet::from([12, 0, 1])), false);
-        assert_eq!(new_action.is_applicable(&HashSet::from([12, 0, 1, 9])), true);
+        assert_eq!(
+            new_action.is_applicable(&HashSet::from([12, 0, 1, 9])),
+            true
+        );
         let transitions = new_action.transition(&HashSet::from([2, 0, 1]));
         for transition in transitions.iter() {
             assert_eq!(transition.contains(&6), false);
@@ -235,7 +275,7 @@ mod tests {
             "NDAction1".to_string(),
             1,
             HashSet::from([0, 1]),
-            vec![HashSet::from([2]), HashSet::from([2,5])],
+            vec![HashSet::from([2]), HashSet::from([2, 5])],
             vec![HashSet::from([0]), HashSet::from([1, 3])],
         );
         let relaxed = action.delete_relax();
@@ -256,24 +296,24 @@ mod tests {
             "NDAction1".to_string(),
             1,
             HashSet::from([0, 1]),
-            vec![HashSet::from([2]), HashSet::from([2,5])],
+            vec![HashSet::from([2]), HashSet::from([2, 5])],
             vec![HashSet::from([0]), HashSet::from([1, 3])],
         );
         let determinized = action.determinize();
         assert_eq!(determinized.len(), 2);
         let act_1 = &determinized[0];
         let act_2 = &determinized[1];
-        assert_eq!(act_1.is_applicable(&HashSet::from([0,1])), true);
-        assert_eq!(act_2.is_applicable(&HashSet::from([0,1])), true);
+        assert_eq!(act_1.is_applicable(&HashSet::from([0, 1])), true);
+        assert_eq!(act_2.is_applicable(&HashSet::from([0, 1])), true);
         assert_eq!(act_1.name, "NDAction1__determinized_0");
         assert_eq!(act_2.name, "NDAction1__determinized_1");
 
-        let transition_1 = act_1.transition(&HashSet::from([0,1,2]));
+        let transition_1 = act_1.transition(&HashSet::from([0, 1, 2]));
         assert_eq!(transition_1.len(), 1);
-        assert_eq!(transition_1[0], HashSet::from([1,2]));
+        assert_eq!(transition_1[0], HashSet::from([1, 2]));
 
-        let transition_2 = act_2.transition(&HashSet::from([0,1,2,3]));
+        let transition_2 = act_2.transition(&HashSet::from([0, 1, 2, 3]));
         assert_eq!(transition_2.len(), 1);
-        assert_eq!(transition_2[0], HashSet::from([0,2,5]));
+        assert_eq!(transition_2[0], HashSet::from([0, 2, 5]));
     }
 }

@@ -1,15 +1,16 @@
 mod acyclic_plan;
-mod search_stats;
+pub mod fixed_method;
 mod h_type;
+pub mod htn_andstar;
 mod progression;
 mod search_graph;
 pub mod fixed_method;
 pub mod htn_andstar;
 
-use super::task_network::{HTN, Applicability, Task, CompoundTask, PrimitiveAction};
-use search_stats::SearchStats;
-pub use h_type::HeuristicType;
+use super::task_network::{Applicability, CompoundTask, Task, HTN};
 pub use acyclic_plan::*;
 pub use fixed_method::*;
+pub use h_type::HeuristicType;
 use progression::*;
 use search_graph::*;
+use search_stats::SearchStats;

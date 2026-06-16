@@ -424,7 +424,6 @@ fn is_reach_proper(view: &ReachView<'_>) -> bool {
 
 // ── Algorithm 2 — HTN-AND* ─────────────────────────────────────────────────
 
-/// AND* search for standard FOND (non-probabilistic) HTN domains.
 /// Returns a strong plan minimising the number of compound-node assignments.
 pub fn run(
     problem: &FONDProblem,

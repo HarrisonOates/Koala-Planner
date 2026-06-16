@@ -20,6 +20,7 @@ pub struct SearchGraph {
     // Keeps teack of maximum u32 ID used in the tree
     pub cursor: u32,
     pub relaxed_domain: Option<(RelaxedComposition, HashMap<u32, u32>)>,
+    pub rho: f64,
 }
 
 impl SearchGraph {
@@ -45,6 +46,7 @@ impl SearchGraph {
             root: 1,
             cursor: 2,
             relaxed_domain: Some((relaxed, bijection)),
+            rho: problem.rho,
         }
     }
 
